@@ -96,17 +96,34 @@ class AuthService {
         msg.contains('invalid email or password')) {
       return 'Incorrect email or password. Please try again.';
     }
-    if (msg.contains('already registered')) {
+    if (msg.contains('already registered') ||
+        msg.contains('user already exists')) {
       return 'An account with this email already exists. Try signing in instead.';
     }
     if (msg.contains('password should be at least')) {
       return 'Password must be at least 6 characters.';
     }
-    if (msg.contains('unable to validate email')) {
+    if (msg.contains('unable to validate email') ||
+        msg.contains('invalid email')) {
       return 'Please enter a valid email address.';
+    }
+    if (msg.contains('email not confirmed')) {
+      return 'Please check your email to confirm your account before signing in.';
     }
     if (msg.contains('rate limit')) {
       return 'Too many attempts. Please wait a few minutes and try again.';
+    }
+    if (msg.contains('failed host lookup') ||
+        msg.contains('err_name_not_resolved') ||
+        msg.contains('connection refused') ||
+        msg.contains('network') ||
+        msg.contains('clientexception')) {
+      return 'Authentication server unreachable. Check your connection or server configuration.';
+    }
+    if (e.message.trim().isNotEmpty &&
+        !msg.contains('xmlhttprequest') &&
+        !msg.contains('socketexception')) {
+      return e.message.trim();
     }
     return 'Something went wrong. Please check your connection and try again.';
   }

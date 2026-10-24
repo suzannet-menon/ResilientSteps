@@ -50,3 +50,6 @@ app.*.map.json
 .env.local
 .env.staging
 .env.production
+
+# Compile-time secrets (copy .env.example -> config/dart_defines.json and fill in)
+config/dart_defines.json

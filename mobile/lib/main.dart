@@ -37,6 +37,10 @@ Future<void> main() async {
     anonKey: AppConfig.supabaseAnonKey,
   );
 
+  final String supabaseHost =
+      Uri.tryParse(AppConfig.supabaseUrl)?.host ?? 'unknown';
+  debugPrint('Supabase initialized with endpoint host: $supabaseHost');
+
   await Hive.initFlutter();
   await Hive.openBox('walksafe_saved_places');
 

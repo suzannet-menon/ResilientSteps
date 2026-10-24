@@ -29,10 +29,12 @@ class AuthScreenShell extends StatelessWidget {
 
         final Widget formFields = Form(
           key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: formWidgets,
+          child: AutofillGroup(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: formWidgets,
+            ),
           ),
         );
 

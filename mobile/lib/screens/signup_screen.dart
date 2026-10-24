@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/auth_service.dart';
@@ -42,18 +42,29 @@ class _SignupScreenState extends State<SignupScreen> {
       return;
     }
 
+    FocusScope.of(context).unfocus();
+
     setState(() {
       _loading = true;
       _errorMessage = null;
     });
 
     try {
-      await AuthService.instance.signUp(
+      final AuthResponse res = await AuthService.instance.signUp(
         email: _emailController.text,
         password: _passwordController.text,
         displayName: _nameController.text,
       );
       if (mounted) {
+        if (res.session == null && res.user != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Account created! Please check your email to confirm your account.',
+              ),
+            ),
+          );
+        }
         if (Navigator.of(context).canPop()) {
           Navigator.of(context).pop(true);
         }
@@ -62,7 +73,8 @@ class _SignupScreenState extends State<SignupScreen> {
       setState(() {
         _errorMessage = AuthService.friendlyError(e);
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Auth sign-up error: $e');
       setState(() {
         _errorMessage =
             'Could not connect. Check your internet connection.';
@@ -160,6 +172,7 @@ class _SignupScreenState extends State<SignupScreen> {
       TextFormField(
         controller: _nameController,
         textCapitalization: TextCapitalization.words,
+        autofillHints: const <String>[AutofillHints.name],
         style: const TextStyle(
           fontSize: 15,
           color: Color(0xFF142032),
@@ -178,6 +191,10 @@ class _SignupScreenState extends State<SignupScreen> {
       TextFormField(
         controller: _emailController,
         keyboardType: TextInputType.emailAddress,
+        autofillHints: const <String>[
+          AutofillHints.email,
+          AutofillHints.username,
+        ],
         autocorrect: false,
         style: const TextStyle(
           fontSize: 15,
@@ -202,6 +219,7 @@ class _SignupScreenState extends State<SignupScreen> {
       TextFormField(
         controller: _passwordController,
         obscureText: _obscurePassword,
+        autofillHints: const <String>[AutofillHints.newPassword],
         style: const TextStyle(
           fontSize: 15,
           color: Color(0xFF142032),
@@ -240,6 +258,7 @@ class _SignupScreenState extends State<SignupScreen> {
       TextFormField(
         controller: _confirmController,
         obscureText: _obscureConfirm,
+        autofillHints: const <String>[AutofillHints.newPassword],
         style: const TextStyle(
           fontSize: 15,
           color: Color(0xFF142032),
