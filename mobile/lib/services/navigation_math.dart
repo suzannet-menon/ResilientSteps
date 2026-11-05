@@ -78,7 +78,7 @@ class NavigationMath {
             distanceAlongRoute + projection.distanceAlongSegmentMeters;
       }
 
-      distanceAlongRoute += distanceMeters(start, end);
+      distanceAlongRoute += projection.segmentLengthMeters;
     }
 
     final List<LatLng> completedPoints = <LatLng>[routePoints.first];
@@ -261,19 +261,20 @@ class NavigationMath {
               (projectedPoint.y * projectedPoint.y),
         ),
         distanceAlongSegmentMeters: 0,
+        segmentLengthMeters: 0,
       );
     }
 
+    final double segmentLength = math.sqrt(segmentLengthSquared);
     final double projection =
         ((projectedPoint.x * dx) + (projectedPoint.y * dy)) /
         segmentLengthSquared;
     final double t = projection.clamp(0.0, 1.0).toDouble();
     final double closestX = dx * t;
     final double closestY = dy * t;
-    final double distance = math.sqrt(
-      math.pow(projectedPoint.x - closestX, 2).toDouble() +
-          math.pow(projectedPoint.y - closestY, 2).toDouble(),
-    );
+    final double diffX = projectedPoint.x - closestX;
+    final double diffY = projectedPoint.y - closestY;
+    final double distance = math.sqrt((diffX * diffX) + (diffY * diffY));
 
     return _SegmentProjection(
       point: _unprojectRelativeTo(
@@ -281,7 +282,8 @@ class NavigationMath {
         _ProjectedPoint(x: closestX, y: closestY),
       ),
       distanceMeters: distance,
-      distanceAlongSegmentMeters: math.sqrt(segmentLengthSquared) * t,
+      distanceAlongSegmentMeters: segmentLength * t,
+      segmentLengthMeters: segmentLength,
     );
   }
 
@@ -303,9 +305,12 @@ class NavigationMath {
     );
   }
 
-  static double _degreesToRadians(double degrees) => degrees * math.pi / 180;
+  static const double _degToRad = math.pi / 180;
+  static const double _radToDeg = 180 / math.pi;
 
-  static double _radiansToDegrees(double radians) => radians * 180 / math.pi;
+  static double _degreesToRadians(double degrees) => degrees * _degToRad;
+
+  static double _radiansToDegrees(double radians) => radians * _radToDeg;
 
   static LatLng _unprojectRelativeTo(LatLng origin, _ProjectedPoint point) {
     final double originLatitudeRadians = _degreesToRadians(origin.latitude);
@@ -354,9 +359,11 @@ class _SegmentProjection {
     required this.point,
     required this.distanceMeters,
     required this.distanceAlongSegmentMeters,
+    required this.segmentLengthMeters,
   });
 
   final LatLng point;
   final double distanceMeters;
   final double distanceAlongSegmentMeters;
+  final double segmentLengthMeters;
 }
