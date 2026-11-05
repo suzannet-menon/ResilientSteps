@@ -21,6 +21,10 @@ if not CONFIG_DIR.exists():
     CONFIG_DIR = _CURRENT_DIR.parent.parent.parent / "config"
 
 
+_ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
+_YAML_CACHE: Dict[Path, Dict[str, Any]] = {}
+
+
 def _interpolate_env_vars(raw_text: str) -> str:
     """
     Interpolate ${ENV_VAR} or ${ENV_VAR:-default} references in YAML raw text.
@@ -32,8 +36,7 @@ def _interpolate_env_vars(raw_text: str) -> str:
             return os.environ.get(var_name, default_val)
         return os.environ.get(var_expr, "")
 
-    pattern = re.compile(r"\$\{([^}]+)\}")
-    return pattern.sub(_replacer, raw_text)
+    return _ENV_VAR_PATTERN.sub(_replacer, raw_text)
 
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
@@ -41,17 +44,59 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
         LOGGER.warning("Config file not found at: %s", path)
         return {}
 
-    with open(path, "r", encoding="utf-8") as f:
-        raw = f.read()
-
-    interpolated = _interpolate_env_vars(raw)
     try:
-        data = yaml.safe_load(interpolated)
-        return data if isinstance(data, dict) else {}
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = 0.0
+
+    cached = _YAML_CACHE.get(path)
+    if cached is not None and cached["mtime"] == mtime:
+        if not cached["has_env"]:
+            return cached["data"]
+        env_snapshot = tuple(
+            (var, os.environ.get(var, default))
+            for var, default in cached["env_deps"]
+        )
+        if env_snapshot == cached["env_snapshot"]:
+            return cached["data"]
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read()
     except Exception as exc:
-        LOGGER.error("Failed to parse YAML from %s: %s", path, exc)
+        LOGGER.error("Failed to read config from %s: %s", path, exc)
         return {}
 
+    has_env = "${" in raw
+    env_deps = []
+    if has_env:
+        for match in _ENV_VAR_PATTERN.finditer(raw):
+            expr = match.group(1)
+            if ":-" in expr:
+                v, d = expr.split(":-", 1)
+                env_deps.append((v, d))
+            else:
+                env_deps.append((expr, ""))
+
+    interpolated = _interpolate_env_vars(raw) if has_env else raw
+    try:
+        data = yaml.safe_load(interpolated)
+        parsed = data if isinstance(data, dict) else {}
+    except Exception as exc:
+        LOGGER.error("Failed to parse YAML from %s: %s", path, exc)
+        parsed = {}
+
+    env_snapshot = tuple(
+        (var, os.environ.get(var, default)) for var, default in env_deps
+    )
+    _YAML_CACHE[path] = {
+        "mtime": mtime,
+        "has_env": has_env,
+        "env_deps": env_deps,
+        "env_snapshot": env_snapshot,
+        "data": parsed,
+    }
+    return parsed
 
 class ConfigLoader:
     def __init__(self, config_dir: Optional[Path] = None):
