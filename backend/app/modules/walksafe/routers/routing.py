@@ -1,4 +1,5 @@
 import time
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -27,7 +28,7 @@ router = APIRouter()
 # For multi-instance deployment, replace with Redis.
 # The dict is safe here because these handlers run on the app's asyncio event
 # loop. If threaded workers are introduced later, guard access with a lock.
-_zones_cache: dict[str, dict[str, Any]] = {}
+_zones_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _ZONES_CACHE_TTL_SECONDS: float = 600.0
 _ZONES_CACHE_MAX_SIZE: int = 128
 
@@ -60,19 +61,19 @@ def _get_cached_zones(bbox_key: str) -> Optional[dict]:
         _zones_cache.pop(bbox_key, None)
         return None
 
+    _zones_cache.move_to_end(bbox_key)
     return cached_entry["data"]
 
 
 def _set_cached_zones(bbox_key: str, data: dict) -> None:
-    # Evict oldest entries if cache exceeds max size.
-    while len(_zones_cache) >= _ZONES_CACHE_MAX_SIZE:
-        oldest_key = min(_zones_cache, key=lambda k: _zones_cache[k]["cached_at"])
-        del _zones_cache[oldest_key]
-
+    if bbox_key in _zones_cache:
+        _zones_cache.move_to_end(bbox_key)
     _zones_cache[bbox_key] = {
         "cached_at": time.time(),
         "data": data,
     }
+    while len(_zones_cache) > _ZONES_CACHE_MAX_SIZE:
+        _zones_cache.popitem(last=False)
 
 
 class Coordinate(BaseModel):

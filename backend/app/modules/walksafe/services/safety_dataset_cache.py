@@ -85,7 +85,7 @@ class CachedSafetyZone:
     risk_score: float
     dataset_version: str
     geometry: Any
-
+    geojson_feature: dict[str, Any] | None = None
 
 class SafetyDatasetSnapshot:
     def __init__(
@@ -112,6 +112,29 @@ class SafetyDatasetSnapshot:
         self._zone_geometry_id_to_index = {
             id(geometry): index for index, geometry in enumerate(self._zone_geometries)
         }
+
+        # Precompute GeoJSON features once to avoid redundant serialization on requests
+        self._all_features = [
+            zone.geojson_feature if zone.geojson_feature is not None else {
+                "type": "Feature",
+                "geometry": mapping(zone.geometry),
+                "properties": {
+                    "zone_id": zone.zone_id,
+                    "risk_level": zone.risk_level,
+                    "risk_score": zone.risk_score,
+                    "dataset_version": zone.dataset_version,
+                },
+            }
+            for zone in safety_zones
+        ]
+
+        # Prepare zone geometries in-place to accelerate point-in-polygon checks
+        for geometry in self._zone_geometries:
+            try:
+                import shapely
+                shapely.prepare(geometry)
+            except Exception:
+                pass
 
     def match_route_segments(
         self,
@@ -198,27 +221,13 @@ class SafetyDatasetSnapshot:
             candidate_indices = self._resolve_indices(
                 self._zone_tree.query(query_bounds) if self._zone_tree else []
             )
-            zones = [
-                self._safety_zones[index]
+            features = [
+                self._all_features[index]
                 for index in candidate_indices
                 if self._safety_zones[index].geometry.intersects(query_bounds)
             ]
         else:
-            zones = self._safety_zones
-
-        features = [
-            {
-                "type": "Feature",
-                "geometry": mapping(zone.geometry),
-                "properties": {
-                    "zone_id": zone.zone_id,
-                    "risk_level": zone.risk_level,
-                    "risk_score": zone.risk_score,
-                    "dataset_version": zone.dataset_version,
-                },
-            }
-            for zone in zones
-        ]
+            features = self._all_features
 
         payload: dict[str, Any] = {
             "type": "FeatureCollection",
@@ -530,17 +539,22 @@ def _point_to_linestring_distance_m(point: Point, line: LineString) -> float:
     point_lat = point.y
     point_lon = point.x
     best_distance_m = math.inf
+    deg_to_rad = math.pi / 180.0
+    meters_per_lat = deg_to_rad * EARTH_RADIUS_METERS
+    meters_per_lon = meters_per_lat * math.cos(point_lat * deg_to_rad)
 
     for start, end in zip(coordinates, coordinates[1:]):
         start_lon, start_lat = start
         end_lon, end_lat = end
-        distance_m = _point_to_segment_distance_m(
+        distance_m = _fast_point_to_segment_distance_m(
             point_lat,
             point_lon,
             start_lat,
             start_lon,
             end_lat,
             end_lon,
+            meters_per_lat,
+            meters_per_lon,
         )
         if distance_m < best_distance_m:
             best_distance_m = distance_m
@@ -581,6 +595,33 @@ def _point_to_segment_distance_m(
     closest_y = start_y + (projection * delta_y)
     return math.hypot(closest_x, closest_y)
 
+
+def _fast_point_to_segment_distance_m(
+    point_lat: float,
+    point_lon: float,
+    start_lat: float,
+    start_lon: float,
+    end_lat: float,
+    end_lon: float,
+    meters_per_lat: float,
+    meters_per_lon: float,
+) -> float:
+    start_x = (start_lon - point_lon) * meters_per_lon
+    start_y = (start_lat - point_lat) * meters_per_lat
+    end_x = (end_lon - point_lon) * meters_per_lon
+    end_y = (end_lat - point_lat) * meters_per_lat
+
+    delta_x = end_x - start_x
+    delta_y = end_y - start_y
+    segment_length_sq = (delta_x * delta_x) + (delta_y * delta_y)
+    if segment_length_sq == 0.0:
+        return math.hypot(start_x, start_y)
+
+    projection = -((start_x * delta_x) + (start_y * delta_y)) / segment_length_sq
+    projection = max(0.0, min(1.0, projection))
+    closest_x = start_x + (projection * delta_x)
+    closest_y = start_y + (projection * delta_y)
+    return math.hypot(closest_x, closest_y)
 
 def _to_local_xy(
     *,
