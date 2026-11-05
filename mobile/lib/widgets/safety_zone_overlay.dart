@@ -33,42 +33,46 @@ class SafetyZoneOverlay extends StatelessWidget {
     final _ZonePolygonStyle style = _styleForZone(zone.classification);
     return Polygon(
       points: zone.polygonPoints,
-      color: style.fillColor.withValues(alpha: style.fillOpacity),
+      color: style.fillColor,
       borderColor: style.borderColor,
       borderStrokeWidth: style.borderWidth,
     );
   }
 
+  static const _ZonePolygonStyle _safeStyle = _ZonePolygonStyle(
+    fillColor: Color(0x4743A047),
+    borderColor: Color(0xFF43A047),
+    borderWidth: 1,
+  );
+
+  static const _ZonePolygonStyle _cautiousStyle = _ZonePolygonStyle(
+    fillColor: Color(0x52F57C00),
+    borderColor: Color(0xFFF57C00),
+    borderWidth: 1,
+  );
+
+  static const _ZonePolygonStyle _riskyStyle = _ZonePolygonStyle(
+    fillColor: Color(0x61D32F2F),
+    borderColor: Color(0xFFD32F2F),
+    borderWidth: 1.5,
+  );
+
+  static const _ZonePolygonStyle _defaultStyle = _ZonePolygonStyle(
+    fillColor: Color(0x339E9E9E),
+    borderColor: Color(0xFF9E9E9E),
+    borderWidth: 1,
+  );
+
   _ZonePolygonStyle _styleForZone(String? classification) {
     switch ((classification ?? '').toLowerCase()) {
       case 'safe':
-        return const _ZonePolygonStyle(
-          fillColor: Color(0xFF43A047),
-          fillOpacity: 0.28,
-          borderColor: Color(0xFF43A047),
-          borderWidth: 1,
-        );
+        return _safeStyle;
       case 'cautious':
-        return const _ZonePolygonStyle(
-          fillColor: Color(0xFFF57C00),
-          fillOpacity: 0.32,
-          borderColor: Color(0xFFF57C00),
-          borderWidth: 1,
-        );
+        return _cautiousStyle;
       case 'risky':
-        return const _ZonePolygonStyle(
-          fillColor: Color(0xFFD32F2F),
-          fillOpacity: 0.38,
-          borderColor: Color(0xFFD32F2F),
-          borderWidth: 1.5,
-        );
+        return _riskyStyle;
       default:
-        return const _ZonePolygonStyle(
-          fillColor: Color(0xFF9E9E9E),
-          fillOpacity: 0.20,
-          borderColor: Color(0xFF9E9E9E),
-          borderWidth: 1,
-        );
+        return _defaultStyle;
     }
   }
 }
@@ -76,13 +80,11 @@ class SafetyZoneOverlay extends StatelessWidget {
 class _ZonePolygonStyle {
   const _ZonePolygonStyle({
     required this.fillColor,
-    required this.fillOpacity,
     required this.borderColor,
     required this.borderWidth,
   });
 
   final Color fillColor;
-  final double fillOpacity;
   final Color borderColor;
   final double borderWidth;
 }

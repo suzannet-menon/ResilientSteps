@@ -38,6 +38,16 @@ class MapLayersBuilder {
       ),
     ],
   );
+  static const Color _completedRouteGlow = Color(0x47FFFFFF);
+  static const Color _completedRouteCore = Color(0x1A2F6EF6);
+  static const Color _remainingRouteGlow = Color(0xE0FFFFFF);
+  static const Color _remainingRouteCore = Color(0x2E2F6EF6);
+  static const Color _routeBaseGlow = Color(0xD6FFFFFF);
+  static const Color _routeBaseCore = Color(0x242F6EF6);
+  static const Color _unscoredRouteBorder = Color(0xF5FFFFFF);
+  static const Color _scoredSegmentBorder = Color(0xE6FFFFFF);
+  static const Color _activeSegmentBorder = Color(0xEBFFFFFF);
+
 
   static List<Polyline> buildRoutePolylines({
     required ScoredRoute route,
@@ -64,12 +74,12 @@ class MapLayersBuilder {
           Polyline(
             points: progress.completedPoints,
             strokeWidth: 11,
-            color: Colors.white.withValues(alpha: 0.28),
+            color: _completedRouteGlow,
           ),
           Polyline(
             points: progress.completedPoints,
             strokeWidth: 6,
-            color: const Color(0xFF2F6EF6).withValues(alpha: 0.10),
+            color: _completedRouteCore,
           ),
         ]);
       }
@@ -81,12 +91,12 @@ class MapLayersBuilder {
         Polyline(
           points: remainingPoints,
           strokeWidth: 16,
-          color: Colors.white.withValues(alpha: 0.88),
+          color: _remainingRouteGlow,
         ),
         Polyline(
           points: remainingPoints,
           strokeWidth: 11,
-          color: const Color(0xFF2F6EF6).withValues(alpha: 0.18),
+          color: _remainingRouteCore,
         ),
       ]);
 
@@ -97,7 +107,7 @@ class MapLayersBuilder {
             strokeWidth: 8,
             color: const Color(0xFF30C56A),
             borderStrokeWidth: 4.4,
-            borderColor: Colors.white.withValues(alpha: 0.96),
+            borderColor: _unscoredRouteBorder,
           ),
         );
         return polylines;
@@ -111,12 +121,12 @@ class MapLayersBuilder {
       Polyline(
         points: routePoints,
         strokeWidth: 16,
-        color: Colors.white.withValues(alpha: 0.84),
+        color: _routeBaseGlow,
       ),
       Polyline(
         points: routePoints,
         strokeWidth: 11,
-        color: const Color(0xFF2F6EF6).withValues(alpha: 0.14),
+        color: _routeBaseCore,
       ),
     ]);
 
@@ -127,7 +137,7 @@ class MapLayersBuilder {
           strokeWidth: 8,
           color: const Color(0xFF30C56A),
           borderStrokeWidth: 4.4,
-          borderColor: Colors.white.withValues(alpha: 0.96),
+          borderColor: _unscoredRouteBorder,
         ),
       );
       return polylines;
@@ -140,7 +150,7 @@ class MapLayersBuilder {
           strokeWidth: 8.2,
           color: _routeSegmentColor(segment),
           borderStrokeWidth: 2.8,
-          borderColor: Colors.white.withValues(alpha: 0.90),
+          borderColor: _scoredSegmentBorder,
         ),
       );
     }
@@ -386,7 +396,7 @@ class MapLayersBuilder {
           strokeWidth: 8.2,
           color: _routeSegmentColor(segment),
           borderStrokeWidth: 2.8,
-          borderColor: Colors.white.withValues(alpha: 0.92),
+          borderColor: _activeSegmentBorder,
         ),
       );
     }
