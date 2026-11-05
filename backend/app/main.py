@@ -90,10 +90,24 @@ app.include_router(waste_router, prefix="/waste", tags=["Waste Management"])
 # Register Dashboard module router under /dashboard
 app.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
 
-# Mount static web dashboard UI (lives in backend/static, next to app/)
+# Mount static web dashboard UI with Cache-Control headers for static assets
+class CachedStaticFiles(StaticFiles):
+    def __init__(self, *args, cache_control: str = "public, max-age=86400", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cache_control = cache_control
+
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        path = str(args[0]) if args else str(kwargs.get("full_path", ""))
+        if path.endswith(".html"):
+            resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        else:
+            resp.headers["Cache-Control"] = self.cache_control
+        return resp
+
 static_dir = Path(__file__).resolve().parent.parent / "static" / "dashboard"
 if static_dir.exists():
-    app.mount("/dashboard-ui", StaticFiles(directory=str(static_dir), html=True), name="dashboard-ui")
+    app.mount("/dashboard-ui", CachedStaticFiles(directory=str(static_dir), html=True), name="dashboard-ui")
 
 @app.get("/")
 async def root():
