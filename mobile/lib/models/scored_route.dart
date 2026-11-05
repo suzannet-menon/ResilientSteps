@@ -35,6 +35,39 @@ String shadeLabelFor(ScoredRoute? route) {
   return '$pct%';
 }
 
+/// A verified safety report whose coordinate matched a road segment of the
+/// route (R-104). Used to drop report pins on the map and explain the
+/// before/after safety delta.
+class RouteIncidentPoint {
+  const RouteIncidentPoint({
+    required this.point,
+    this.id,
+    this.category,
+    this.severity,
+  });
+
+  final LatLng point;
+  final String? id;
+  final String? category;
+  final int? severity;
+
+  String get tooltipLabel {
+    final String? normalized = category?.trim();
+    final String name = normalized == null || normalized.isEmpty
+        ? 'Verified report'
+        : _humanCategory(normalized);
+    return severity == null ? name : '$name (severity $severity)';
+  }
+
+  static String _humanCategory(String raw) {
+    final String spaced = raw.replaceAll('_', ' ').trim();
+    if (spaced.isEmpty) {
+      return spaced;
+    }
+    return '${spaced[0].toUpperCase()}${spaced.substring(1)}';
+  }
+}
+
 class ScoredRoute {
   const ScoredRoute({
     required this.points,
@@ -46,6 +79,9 @@ class ScoredRoute {
     this.warning,
     this.comfortScore,
     this.comfortLevel,
+    this.baselineSafetyScore,
+    this.incidentScoreDelta,
+    this.incidentPoints = const <RouteIncidentPoint>[],
   });
 
   final List<LatLng> points;
@@ -57,6 +93,18 @@ class ScoredRoute {
   final String? warning;
   final double? comfortScore;
   final String? comfortLevel;
+
+  /// Route safety score before any verified-report penalties (backend
+  /// `base_safety_score`). Null on older/degraded payloads. R-104.
+  final double? baselineSafetyScore;
+
+  /// How many points the verified reports cost: baseline minus the shown
+  /// score. Null or <= 0 means the reports are not visibly affecting it.
+  final double? incidentScoreDelta;
+
+  /// Coordinates of the verified reports that were matched to this route's
+  /// segments (backend `incident_points`).
+  final List<RouteIncidentPoint> incidentPoints;
 
   /// Human-readable comfort summary, or null when the backend has no comfort
   /// data for this route. The UI keeps its existing rendering path when null.

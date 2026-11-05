@@ -179,6 +179,13 @@ class _ReadyState extends StatelessWidget {
         ? '${distKm.toStringAsFixed(1)} km'
         : '${route.totalDistanceMeters.round()} m';
 
+    // R-104: verified reports moved this score — show before -> after.
+    final double? scoreDelta = route.incidentScoreDelta;
+    final double? baseline = route.baselineSafetyScore;
+    final bool showReportImpact =
+        scoreDelta != null && scoreDelta >= 0.5 && baseline != null;
+    final int reportCount = route.incidentPoints.length;
+
     const Color deepGreen = Color(0xFF1B6B3A);
 
     return Column(
@@ -327,6 +334,46 @@ class _ReadyState extends StatelessWidget {
               color: route.shadeCoveragePct! >= 95
                   ? const Color(0xFF8A9BB0)
                   : const Color(0xFFB08030),
+            ),
+          ),
+        ],
+        if (showReportImpact) ...<Widget>[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFDF3E7),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            // Wrap, not Row: the before/after text plus report count must
+            // stack instead of overflowing on narrow screens (same pattern
+            // as the stats strip above).
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: <Widget>[
+                const Icon(
+                  Icons.location_on_rounded,
+                  size: 18,
+                  color: Color(0xFFB07020),
+                ),
+                Text(
+                  'Reports impact: ${baseline.round()}% → '
+                  '${route.averageSafetyScore.round()}% safety',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF7A4B10),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '−${scoreDelta.toStringAsFixed(1)} pts from '
+                  '$reportCount verified report${reportCount == 1 ? '' : 's'}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: const Color(0xFFB07020),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

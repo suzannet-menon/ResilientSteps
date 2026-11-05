@@ -16,6 +16,12 @@ class RoutingService {
   static const String _baseUrl = String.fromEnvironment('API_BASE_URL');
   static const Duration _requestTimeout = Duration(seconds: 12);
 
+  /// Exposed for tests that verify payload parsing without network calls.
+  ScoredRoute? scoredRouteFromPayload(
+    Map<String, dynamic>? payload,
+    List<LatLng> routePoints,
+  ) => _scoredRouteFromPayload(payload, routePoints);
+
   final http.Client _client;
   final String _apiBaseUrl;
   final Distance _distance = const Distance();
@@ -114,8 +120,37 @@ class RoutingService {
       warning: payload?['warning']?.toString(),
       comfortScore: _asDouble(payload?['comfort_score']),
       comfortLevel: payload?['comfort_level']?.toString(),
+      baselineSafetyScore: _asDouble(payload?['base_safety_score']),
+      incidentScoreDelta: _asDouble(payload?['incident_score_delta']),
+      incidentPoints: _parseIncidentPoints(payload?['incident_points']),
     );
     return route;
+  }
+
+  /// R-104: verified report coordinates matched to the route's segments.
+  List<RouteIncidentPoint> _parseIncidentPoints(Object? raw) {
+    if (raw is! List) {
+      return const <RouteIncidentPoint>[];
+    }
+    final List<RouteIncidentPoint> points = <RouteIncidentPoint>[];
+    for (final dynamic item in raw) {
+      final Map<String, dynamic>? point = _coerceMap(item);
+      final double? lat = _asDouble(point?['lat']);
+      final double? lon = _asDouble(point?['lon']);
+      if (lat == null || lon == null) {
+        continue;
+      }
+      final double? severity = _asDouble(point?['severity']);
+      points.add(
+        RouteIncidentPoint(
+          point: LatLng(lat, lon),
+          id: point?['id']?.toString(),
+          category: point?['category']?.toString(),
+          severity: severity?.round(),
+        ),
+      );
+    }
+    return points;
   }
 
   Future<List<LatLng>> _fetchRoutePoints(LatLng start, LatLng end) async {

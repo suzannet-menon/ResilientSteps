@@ -273,6 +273,101 @@ class MapLayersBuilder {
     return markers;
   }
 
+  /// R-104: verified-report pins for the coordinates that were matched to
+  /// the current route's segments, so the user can see exactly which points
+  /// moved the safety score.
+  ///
+  /// Coincident reports (near-identical pin coordinates — e.g. reports
+  /// #22/#23/#24 at the BPCL underpass share one coordinate) need special
+  /// handling: one Marker per report would stack full-frame opaque hover
+  /// regions over the same point and only the topmost tooltip would ever
+  /// fire. Every marker, however many reports it holds, is therefore ONE
+  /// frame whose dots are laid out as siblings — each dot owns its own
+  /// 16 px hover area, so every report stays individually hoverable.
+  static List<Marker> buildIncidentMarkers(List<RouteIncidentPoint> points) {
+    if (points.isEmpty) {
+      return const <Marker>[];
+    }
+    final Map<String, List<RouteIncidentPoint>> groups =
+        <String, List<RouteIncidentPoint>>{};
+    for (final RouteIncidentPoint incident in points) {
+      final String key =
+          '${incident.point.latitude.toStringAsFixed(4)},'
+          '${incident.point.longitude.toStringAsFixed(4)}';
+      (groups[key] ??= <RouteIncidentPoint>[]).add(incident);
+    }
+    return <Marker>[
+      for (final List<RouteIncidentPoint> group in groups.values)
+        group.length == 1
+            ? _incidentMarker(group.first)
+            : _incidentGroupMarker(group),
+    ];
+  }
+
+  static Widget _incidentDot() {
+    return Container(
+      width: 16,
+      height: 16,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        color: Color(0xFFE24A3B),
+        border: Border.fromBorderSide(
+          BorderSide(color: Colors.white, width: 2.4),
+        ),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: Color(0x40E24A3B),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Marker _incidentMarker(RouteIncidentPoint incident) {
+    return Marker(
+      point: incident.point,
+      width: 34,
+      height: 34,
+      child: Tooltip(
+        message: incident.tooltipLabel,
+        child: Center(child: _incidentDot()),
+      ),
+    );
+  }
+
+  static Marker _incidentGroupMarker(List<RouteIncidentPoint> group) {
+    // Ring spread headroom: alignment ±0.8 maps to ±12 px inside a 46 px
+    // frame, so a dot at top (0, -12) and dots at bottom-left/right never
+    // overlap their 16 px hit areas.
+    const double frame = 46.0;
+    return Marker(
+      point: group.first.point,
+      width: frame,
+      height: frame,
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          for (int slot = 0; slot < group.length; slot++)
+            Align(
+              alignment: _ringAlignment(slot, group.length),
+              child: Tooltip(
+                message: group[slot].tooltipLabel,
+                child: _incidentDot(),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static Alignment _ringAlignment(int slot, int slotCount) {
+    // Top slot first (angle -90°), then clockwise.
+    final double angle = (2 * math.pi * slot / slotCount) - math.pi / 2;
+    return Alignment(0.8 * math.cos(angle), 0.8 * math.sin(angle));
+  }
+
   static List<Marker> buildNearbyMarkers(List<NearbyPlace> places) {
     return places
         .map(

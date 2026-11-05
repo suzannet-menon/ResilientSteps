@@ -111,7 +111,13 @@ class _HomeScreenState extends State<HomeScreen> {
       zoom: _currentZoom,
       origin: origin,
       originLabel: _explicitOrigin?.title,
-    )..addAll(MapLayersBuilder.buildNearbyMarkers(_nearbyPlaces));
+    )
+      ..addAll(MapLayersBuilder.buildNearbyMarkers(_nearbyPlaces))
+      ..addAll(
+        MapLayersBuilder.buildIncidentMarkers(
+          route?.incidentPoints ?? const <RouteIncidentPoint>[],
+        ),
+      );
   }
 
   List<Polyline> get _routePolylines {

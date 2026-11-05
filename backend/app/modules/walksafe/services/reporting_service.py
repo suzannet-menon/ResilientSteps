@@ -332,6 +332,8 @@ class ReportingService:
                 SELECT
                     nearest.road_segment_id,
                     report.id AS incident_id,
+                    ST_Y(report.location) AS report_lat,
+                    ST_X(report.location) AS report_lon,
                     report.category,
                     COALESCE(report.confidence, :default_confidence) AS confidence,
                     COALESCE(report.status, 'pending') AS status,
@@ -391,7 +393,19 @@ class ReportingService:
                 ) AS incident_weight,
                 MAX(severity) AS max_incident_severity,
                 MAX(submitted_at) AS latest_incident_at,
-                ARRAY_REMOVE(ARRAY_AGG(DISTINCT category), NULL) AS incident_categories
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT category), NULL) AS incident_categories,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', incident_id,
+                            'lat', report_lat,
+                            'lon', report_lon,
+                            'category', category,
+                            'severity', severity
+                        )
+                    )::text,
+                    '[]'
+                ) AS incident_points
             FROM matched_incidents
             GROUP BY road_segment_id
             """
@@ -429,9 +443,57 @@ class ReportingService:
                     if latest_incident_at is not None
                     else None
                 ),
+                # R-104: coordinates of every verified report that matched this
+                # segment, so the app can map the points that moved the score.
+                "incident_points": self._parse_incident_points(
+                    mapping.get("incident_points")
+                ),
             }
 
         return aggregates
+
+    @staticmethod
+    def _parse_incident_points(raw: Any) -> List[Dict[str, Any]]:
+        """Decode the per-segment incident_points JSON emitted by the
+        aggregates query. Degrades to an empty list; this is diagnostic
+        data and must never break scoring."""
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            LOGGER.warning("Could not decode incident_points payload; skipping.")
+            return []
+        if not isinstance(parsed, list):
+            return []
+        points: List[Dict[str, Any]] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            lat = item.get("lat")
+            lon = item.get("lon")
+            if lat is None or lon is None:
+                continue
+            try:
+                severity = (
+                    int(item["severity"]) if item.get("severity") is not None else None
+                )
+                points.append(
+                    {
+                        "id": str(item.get("id")),
+                        "lat": float(lat),
+                        "lon": float(lon),
+                        "category": (
+                            str(item.get("category"))
+                            if item.get("category") is not None
+                            else None
+                        ),
+                        "severity": severity,
+                    }
+                )
+            except (TypeError, ValueError):
+                continue
+        return points
 
     async def get_segment_shade_corrections(
         self,
