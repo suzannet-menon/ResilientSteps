@@ -22,6 +22,157 @@ COOL_SPOT_BONUS = 5.0
 MAX_COOL_SPOT_BONUS = 10.0
 
 
+SEGMENT_INCIDENT_AGGREGATES_QUERY = text(
+    """
+    WITH route_segments AS (
+        SELECT id, geometry
+        FROM road_segments
+        WHERE dataset_version = :dataset_version
+        AND id IN :road_segment_ids
+    ),
+    route_bounds AS (
+        SELECT ST_Envelope(ST_Collect(geometry)) AS route_bbox
+        FROM route_segments
+    ),
+    matched_incidents AS (
+        SELECT
+            nearest.road_segment_id,
+            report.id AS incident_id,
+            report.category,
+            COALESCE(report.confidence, :default_confidence) AS confidence,
+            COALESCE(report.status, 'pending') AS status,
+            report.submitted_at
+        FROM incident_reports report
+        CROSS JOIN route_bounds bounds
+        JOIN LATERAL (
+            SELECT
+                rs.id AS road_segment_id,
+                ST_Distance(rs.geometry::geography, report.location) AS distance_m
+            FROM route_segments rs
+            WHERE rs.geometry && ST_Expand(
+                report.location::geometry,
+                :incident_search_expand_degrees
+            )
+            ORDER BY rs.geometry <-> report.location::geometry
+            LIMIT 1
+        ) AS nearest ON TRUE
+        WHERE bounds.route_bbox IS NOT NULL
+        AND report.location::geometry && ST_Expand(
+            bounds.route_bbox,
+            :incident_search_expand_degrees
+        )
+        AND nearest.distance_m <= :incident_match_distance_m
+        AND LOWER(COALESCE(report.status, 'pending')) = 'verified'
+        AND COALESCE(report.report_type, 'safety') = 'safety'
+    )
+    SELECT
+        road_segment_id,
+        COUNT(*) AS incident_count,
+        ROUND(
+            SUM(
+                confidence
+                * CASE
+                    WHEN submitted_at >= NOW() - INTERVAL '7 days' THEN 1.0
+                    WHEN submitted_at >= NOW() - INTERVAL '30 days' THEN 0.8
+                    WHEN submitted_at >= NOW() - INTERVAL '90 days' THEN 0.55
+                    ELSE 0.3
+                END
+                * CASE category
+                    WHEN 'Stalking' THEN 1.0
+                    WHEN 'Harassment' THEN 0.9
+                    WHEN 'Suspicious Activity' THEN 0.8
+                    WHEN 'Unsafe infrastructure' THEN 0.7
+                    WHEN 'Poor lighting' THEN 0.6
+                    WHEN 'no_shade' THEN 0.0
+                    WHEN 'No shade / heavy sun' THEN 0.0
+                    WHEN 'shade_obstruction' THEN 0.0
+                    WHEN 'Shade blocked (overgrown / construction)' THEN 0.0
+                    WHEN 'heat_stress' THEN 0.0
+                    WHEN 'Heat stress / too hot to walk' THEN 0.0
+                    WHEN 'cool_spot' THEN 0.0
+                    WHEN 'Cool shaded spot / water available' THEN 0.0
+                    ELSE 0.65
+                END
+            )::numeric,
+            3
+        ) AS incident_weight,
+        MAX(submitted_at) AS latest_incident_at,
+        ARRAY_REMOVE(ARRAY_AGG(DISTINCT category), NULL) AS incident_categories
+    FROM matched_incidents
+    GROUP BY road_segment_id
+    """
+).bindparams(bindparam("road_segment_ids", expanding=True))
+
+SEGMENT_SHADE_CORRECTIONS_QUERY = text(
+    """
+    WITH route_segments AS (
+        SELECT id, geometry
+        FROM road_segments
+        WHERE dataset_version = :dataset_version
+        AND id IN :road_segment_ids
+    ),
+    route_bounds AS (
+        SELECT ST_Envelope(ST_Collect(geometry)) AS route_bbox
+        FROM route_segments
+    ),
+    matched_observations AS (
+        SELECT
+            nearest.road_segment_id,
+            report.category,
+            COALESCE(report.status, 'pending') AS status
+        FROM incident_reports report
+        CROSS JOIN route_bounds bounds
+        JOIN LATERAL (
+            SELECT
+                rs.id AS road_segment_id,
+                ST_Distance(rs.geometry::geography, report.location) AS distance_m
+            FROM route_segments rs
+            WHERE rs.geometry && ST_Expand(
+                report.location::geometry,
+                :incident_search_expand_degrees
+            )
+            ORDER BY rs.geometry <-> report.location::geometry
+            LIMIT 1
+        ) AS nearest ON TRUE
+        WHERE bounds.route_bbox IS NOT NULL
+        AND report.location::geometry && ST_Expand(
+            bounds.route_bbox,
+            :incident_search_expand_degrees
+        )
+        AND nearest.distance_m <= :incident_match_distance_m
+        AND LOWER(COALESCE(report.status, 'pending')) = 'verified'
+        AND COALESCE(report.report_type, 'safety') = 'safety'
+        AND LOWER(report.category) IN (
+            'no_shade',
+            'no shade / heavy sun',
+            'shade_obstruction',
+            'shade blocked (overgrown / construction)',
+            'cool_spot',
+            'cool shaded spot / water available'
+        )
+    )
+    SELECT
+        road_segment_id,
+        SUM(
+            CASE
+                WHEN LOWER(category) IN (
+                    'no_shade',
+                    'no shade / heavy sun',
+                    'shade_obstruction',
+                    'shade blocked (overgrown / construction)'
+                ) THEN :shade_observation_penalty
+                WHEN LOWER(category) IN (
+                    'cool_spot',
+                    'cool shaded spot / water available'
+                ) THEN :cool_spot_bonus
+                ELSE 0.0
+            END
+        )::numeric AS shade_correction
+    FROM matched_observations
+    GROUP BY road_segment_id
+    """
+).bindparams(bindparam("road_segment_ids", expanding=True))
+
 class ReportingService:
     def __init__(self) -> None:
         self.base_confidence = 0.5
@@ -158,86 +309,7 @@ class ReportingService:
         if not road_segment_ids or not dataset_version:
             return {}
 
-        query = text(
-            """
-            WITH route_segments AS (
-                SELECT id, geometry
-                FROM road_segments
-                WHERE dataset_version = :dataset_version
-                AND id IN :road_segment_ids
-            ),
-            route_bounds AS (
-                SELECT ST_Envelope(ST_Collect(geometry)) AS route_bbox
-                FROM route_segments
-            ),
-            matched_incidents AS (
-                SELECT
-                    nearest.road_segment_id,
-                    report.id AS incident_id,
-                    report.category,
-                    COALESCE(report.confidence, :default_confidence) AS confidence,
-                    COALESCE(report.status, 'pending') AS status,
-                    report.submitted_at
-                FROM incident_reports report
-                CROSS JOIN route_bounds bounds
-                JOIN LATERAL (
-                    SELECT
-                        rs.id AS road_segment_id,
-                        ST_Distance(rs.geometry::geography, report.location) AS distance_m
-                    FROM route_segments rs
-                    WHERE rs.geometry && ST_Expand(
-                        report.location::geometry,
-                        :incident_search_expand_degrees
-                    )
-                    ORDER BY rs.geometry <-> report.location::geometry
-                    LIMIT 1
-                ) AS nearest ON TRUE
-                WHERE bounds.route_bbox IS NOT NULL
-                AND report.location::geometry && ST_Expand(
-                    bounds.route_bbox,
-                    :incident_search_expand_degrees
-                )
-                AND nearest.distance_m <= :incident_match_distance_m
-                AND LOWER(COALESCE(report.status, 'pending')) = 'verified'
-                AND COALESCE(report.report_type, 'safety') = 'safety'
-            )
-            SELECT
-                road_segment_id,
-                COUNT(*) AS incident_count,
-                ROUND(
-                    SUM(
-                        confidence
-                        * CASE
-                            WHEN submitted_at >= NOW() - INTERVAL '7 days' THEN 1.0
-                            WHEN submitted_at >= NOW() - INTERVAL '30 days' THEN 0.8
-                            WHEN submitted_at >= NOW() - INTERVAL '90 days' THEN 0.55
-                            ELSE 0.3
-                        END
-                        * CASE category
-                            WHEN 'Stalking' THEN 1.0
-                            WHEN 'Harassment' THEN 0.9
-                            WHEN 'Suspicious Activity' THEN 0.8
-                            WHEN 'Unsafe infrastructure' THEN 0.7
-                            WHEN 'Poor lighting' THEN 0.6
-                            WHEN 'no_shade' THEN 0.0
-                            WHEN 'No shade / heavy sun' THEN 0.0
-                            WHEN 'shade_obstruction' THEN 0.0
-                            WHEN 'Shade blocked (overgrown / construction)' THEN 0.0
-                            WHEN 'heat_stress' THEN 0.0
-                            WHEN 'Heat stress / too hot to walk' THEN 0.0
-                            WHEN 'cool_spot' THEN 0.0
-                            WHEN 'Cool shaded spot / water available' THEN 0.0
-                            ELSE 0.65
-                        END
-                    )::numeric,
-                    3
-                ) AS incident_weight,
-                MAX(submitted_at) AS latest_incident_at,
-                ARRAY_REMOVE(ARRAY_AGG(DISTINCT category), NULL) AS incident_categories
-            FROM matched_incidents
-            GROUP BY road_segment_id
-            """
-        ).bindparams(bindparam("road_segment_ids", expanding=True))
+        query = SEGMENT_INCIDENT_AGGREGATES_QUERY
 
         result = await db.execute(
             query,
@@ -278,75 +350,7 @@ class ReportingService:
         if not road_segment_ids or not dataset_version:
             return {}
 
-        query = text(
-            """
-            WITH route_segments AS (
-                SELECT id, geometry
-                FROM road_segments
-                WHERE dataset_version = :dataset_version
-                AND id IN :road_segment_ids
-            ),
-            route_bounds AS (
-                SELECT ST_Envelope(ST_Collect(geometry)) AS route_bbox
-                FROM route_segments
-            ),
-            matched_observations AS (
-                SELECT
-                    nearest.road_segment_id,
-                    report.category,
-                    COALESCE(report.status, 'pending') AS status
-                FROM incident_reports report
-                CROSS JOIN route_bounds bounds
-                JOIN LATERAL (
-                    SELECT
-                        rs.id AS road_segment_id,
-                        ST_Distance(rs.geometry::geography, report.location) AS distance_m
-                    FROM route_segments rs
-                    WHERE rs.geometry && ST_Expand(
-                        report.location::geometry,
-                        :incident_search_expand_degrees
-                    )
-                    ORDER BY rs.geometry <-> report.location::geometry
-                    LIMIT 1
-                ) AS nearest ON TRUE
-                WHERE bounds.route_bbox IS NOT NULL
-                AND report.location::geometry && ST_Expand(
-                    bounds.route_bbox,
-                    :incident_search_expand_degrees
-                )
-                AND nearest.distance_m <= :incident_match_distance_m
-                AND LOWER(COALESCE(report.status, 'pending')) = 'verified'
-                AND COALESCE(report.report_type, 'safety') = 'safety'
-                AND LOWER(report.category) IN (
-                    'no_shade',
-                    'no shade / heavy sun',
-                    'shade_obstruction',
-                    'shade blocked (overgrown / construction)',
-                    'cool_spot',
-                    'cool shaded spot / water available'
-                )
-            )
-            SELECT
-                road_segment_id,
-                SUM(
-                    CASE
-                        WHEN LOWER(category) IN (
-                            'no_shade',
-                            'no shade / heavy sun',
-                            'shade_obstruction',
-                            'shade blocked (overgrown / construction)'
-                        ) THEN :shade_observation_penalty
-                        WHEN LOWER(category) IN (
-                            'cool_spot',
-                            'cool shaded spot / water available'
-                        ) THEN :cool_spot_bonus
-                        ELSE 0.0
-                    END
-                )::numeric AS shade_correction
-            FROM matched_observations
-            GROUP BY road_segment_id
-            """
-        ).bindparams(bindparam("road_segment_ids", expanding=True))
+        query = SEGMENT_SHADE_CORRECTIONS_QUERY
 
         result = await db.execute(
             query,
