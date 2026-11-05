@@ -7,22 +7,64 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 LOGGER = logging.getLogger(__name__)
 
+CITY_SUMMARY_QUERY = text(
+    """
+    SELECT
+        COALESCE(report_type, 'safety') AS report_type,
+        COALESCE(status, 'pending') AS status,
+        COALESCE(severity, 3) AS severity,
+        COUNT(*) AS cnt
+    FROM incident_reports
+    GROUP BY COALESCE(report_type, 'safety'), COALESCE(status, 'pending'), COALESCE(severity, 3)
+    """
+)
+
+AVG_MODERATION_HOURS_QUERY = text(
+    """
+    SELECT AVG(EXTRACT(EPOCH FROM (moderated_at - submitted_at)) / 3600.0) AS avg_hours
+    FROM incident_reports
+    WHERE moderated_at IS NOT NULL
+    """
+)
+
+HEATMAP_REPORTS_QUERY = text(
+    """
+    SELECT
+        ST_Y(location) AS lat,
+        ST_X(location) AS lon,
+        COALESCE(report_type, 'safety') AS report_type,
+        COALESCE(severity, 3) AS severity
+    FROM incident_reports
+    WHERE status = 'verified'
+    """
+)
+
+ALL_REPORTS_EXPORT_QUERY = text(
+    """
+    SELECT
+        id::text AS id,
+        user_hash,
+        category,
+        description,
+        ST_Y(location) AS latitude,
+        ST_X(location) AS longitude,
+        status,
+        confidence,
+        COALESCE(severity, 3) AS severity,
+        COALESCE(report_type, 'safety') AS report_type,
+        submitted_at,
+        moderated_at
+    FROM incident_reports
+    ORDER BY submitted_at DESC
+    """
+)
+
+REFRESH_WARD_SUMMARY_QUERY = text("REFRESH MATERIALIZED VIEW ward_report_summary;")
+
 
 class AnalyticsService:
     async def get_city_summary(self, db: AsyncSession) -> Dict[str, Any]:
-        result = await db.execute(
-            text(
-                """
-                SELECT
-                    COALESCE(report_type, 'safety') AS report_type,
-                    COALESCE(status, 'pending') AS status,
-                    COALESCE(severity, 3) AS severity,
-                    COUNT(*) AS cnt
-                FROM incident_reports
-                GROUP BY COALESCE(report_type, 'safety'), COALESCE(status, 'pending'), COALESCE(severity, 3)
-                """
-            )
-        )
+        result = await db.execute(CITY_SUMMARY_QUERY)
         rows = result.fetchall()
 
         total_reports = 0
@@ -53,15 +95,7 @@ class AnalyticsService:
 
         avg_hours: Optional[float] = None
         try:
-            time_res = await db.execute(
-                text(
-                    """
-                    SELECT AVG(EXTRACT(EPOCH FROM (moderated_at - submitted_at)) / 3600.0) AS avg_hours
-                    FROM incident_reports
-                    WHERE moderated_at IS NOT NULL
-                    """
-                )
-            )
+            time_res = await db.execute(AVG_MODERATION_HOURS_QUERY)
             t_row = time_res.fetchone()
             if t_row and t_row._mapping["avg_hours"] is not None:
                 avg_hours = round(float(t_row._mapping["avg_hours"]), 2)
@@ -233,19 +267,7 @@ class AnalyticsService:
         return [dict(row._mapping) for row in result.fetchall()]
 
     async def get_heatmap(self, db: AsyncSession, resolution: int = 8) -> List[Dict[str, Any]]:
-        result = await db.execute(
-            text(
-                """
-                SELECT
-                    ST_Y(location) AS lat,
-                    ST_X(location) AS lon,
-                    COALESCE(report_type, 'safety') AS report_type,
-                    COALESCE(severity, 3) AS severity
-                FROM incident_reports
-                WHERE status = 'verified'
-                """
-            )
-        )
+        result = await db.execute(HEATMAP_REPORTS_QUERY)
         rows = result.fetchall()
         cells: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
@@ -287,31 +309,11 @@ class AnalyticsService:
         return res
 
     async def get_all_reports_for_export(self, db: AsyncSession) -> List[Dict[str, Any]]:
-        result = await db.execute(
-            text(
-                """
-                SELECT
-                    id::text AS id,
-                    user_hash,
-                    category,
-                    description,
-                    ST_Y(location) AS latitude,
-                    ST_X(location) AS longitude,
-                    status,
-                    confidence,
-                    COALESCE(severity, 3) AS severity,
-                    COALESCE(report_type, 'safety') AS report_type,
-                    submitted_at,
-                    moderated_at
-                FROM incident_reports
-                ORDER BY submitted_at DESC
-                """
-            )
-        )
+        result = await db.execute(ALL_REPORTS_EXPORT_QUERY)
         return [dict(row._mapping) for row in result.fetchall()]
 
     async def refresh_summary_view(self, db: AsyncSession) -> None:
-        await db.execute(text("REFRESH MATERIALIZED VIEW ward_report_summary;"))
+        await db.execute(REFRESH_WARD_SUMMARY_QUERY)
 
 
 analytics_service = AnalyticsService()
