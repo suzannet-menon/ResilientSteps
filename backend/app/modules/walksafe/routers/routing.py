@@ -1,6 +1,7 @@
+import os
 import time
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -10,7 +11,10 @@ from app.core.database import get_db
 from app.core.auth_middleware import optional_auth
 from app.core.rate_limiter import nearby_rate_limiter, route_rate_limiter
 from app.modules.walksafe.services.risk_engine import PREFER_OPTIONS, score_route
-from app.modules.walksafe.services.routing_service import get_safe_route
+from app.modules.walksafe.services.routing_service import (
+    get_route_candidates,
+    get_safe_route,
+)
 from app.modules.walksafe.services.safety_zone_service import (
     get_safety_zones as load_safety_zones,
 )
@@ -22,6 +26,13 @@ from app.modules.walksafe.services.nearby_places_service import (
 )
 
 router = APIRouter()
+
+# Silent route-selection gates (no user-facing option list; the app shows
+# ONE route — either Valhalla's fastest, or the safest candidate when the
+# data says it is meaningfully better within a bounded time penalty).
+MIN_COMFORT_DELTA = float(os.environ.get("ROUTE_MIN_COMFORT_DELTA", "2.0"))
+MAX_EXTRA_MINUTES_ABS = float(os.environ.get("ROUTE_MAX_EXTRA_MINUTES", "6.0"))
+MAX_EXTRA_MINUTES_FACTOR = 0.25
 
 # NOTE: This is an in-process cache. It does not survive server restarts
 # and is not shared across multiple backend instances.
@@ -157,6 +168,89 @@ async def route_risk(
     return await score_route(coordinates, db)
 
 
+def _select_route(
+    scored_candidates: list[Tuple[Dict[str, Any], Dict[str, Any]]],
+) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    """
+    Silently rank the scored candidates and pick one.
+
+    Rules (documented stability) :
+    - candidates without matched comfort data never win on merit;
+    - a candidate may only beat the fastest one if it is richer in comfort
+      data (fastest has none), OR beats it by MIN_COMFORT_DELTA comfort
+      points OR beats it by more comfort while staying essentially as fast
+      (within ~1 minute);
+    - in every case the winner must cost at most
+      fastest + max(MAX_EXTRA_MINUTES_ABS, 0.25 x fastest) minutes;
+    - otherwise the fastest route is returned unchanged.
+    """
+    if len(scored_candidates) == 1:
+        route, score = scored_candidates[0]
+        return route, score, {"candidates": 1, "chosen": "only", "comfort_gain": None}
+
+    def _duration_minutes(entry: Tuple[Dict[str, Any], Dict[str, Any]]) -> float:
+        value = entry[0].get("duration_minutes")
+        return float(value) if value is not None else 0.0
+
+    fastest_index = min(
+        range(len(scored_candidates)),
+        key=lambda index: _duration_minutes(scored_candidates[index]),
+    )
+    base_route, base_score = scored_candidates[fastest_index]
+    base_duration = _duration_minutes((base_route, base_score))
+    allowed_extra = max(MAX_EXTRA_MINUTES_ABS, MAX_EXTRA_MINUTES_FACTOR * base_duration)
+
+    eligible: list[Tuple[Dict[str, Any], float, Dict[str, Any]]] = []
+    for route, score in scored_candidates:
+        if route is base_route:
+            continue
+        comfort = score.get("comfort_score")
+        if comfort is None:
+            continue
+        extra_minutes = _duration_minutes((route, score)) - base_duration
+        if extra_minutes > allowed_extra:
+            continue
+        eligible.append((route, float(comfort), score))
+
+    if not eligible:
+        return base_route, base_score, {
+            "candidates": len(scored_candidates),
+            "chosen": "fastest",
+            "comfort_gain": None,
+        }
+
+    best_route, best_comfort, best_score = max(
+        eligible,
+        key=lambda item: (
+            item[1],
+            float(item[2].get("safety_score") or 0.0),
+        ),
+    )
+
+    base_comfort = base_score.get("comfort_score")
+    if base_comfort is not None:
+        comfort_gain = best_comfort - float(base_comfort)
+        base_duration_value = _duration_minutes((base_route, base_score))
+        best_duration_value = _duration_minutes((best_route, best_score))
+        essentially_as_fast = best_duration_value - base_duration_value <= 1.0
+        if comfort_gain < MIN_COMFORT_DELTA and not essentially_as_fast:
+            return base_route, base_score, {
+                "candidates": len(scored_candidates),
+                "chosen": "fastest",
+                "comfort_gain": round(comfort_gain, 2),
+            }
+    else:
+        comfort_gain = None
+
+    return best_route, best_score, {
+        "candidates": len(scored_candidates),
+        "chosen": "safest",
+        "comfort_gain": (
+            round(comfort_gain, 2) if base_comfort is not None else None
+        ),
+    }
+
+
 @router.get("/route-safe")
 async def route_safe(
     start_lat: float,
@@ -178,7 +272,9 @@ async def route_safe(
         )
 
     try:
-        route = await get_safe_route(start_lat, start_lon, end_lat, end_lon)
+        candidates = await get_route_candidates(
+            start_lat, start_lon, end_lat, end_lon
+        )
     except RuntimeError as exc:
         message = str(exc)
         if "Cannot connect to Valhalla routing engine" in message:
@@ -188,10 +284,16 @@ async def route_safe(
             detail="No route or safety data found for this route area.",
         ) from exc
 
-    score = await score_route(route["coordinates"], db, prefer=prefer)
-    score["coordinates"] = route["coordinates"]
-    score["distance_km"] = route["distance_km"]
-    score["duration_minutes"] = route["duration_minutes"]
+    scored_candidates: list[Tuple[Dict[str, Any], Dict[str, Any]]] = [
+        (route, await score_route(route["coordinates"], db, prefer=prefer))
+        for route in candidates
+    ]
+    chosen_route, score, selection = _select_route(scored_candidates)
+
+    score["coordinates"] = chosen_route["coordinates"]
+    score["distance_km"] = chosen_route["distance_km"]
+    score["duration_minutes"] = chosen_route["duration_minutes"]
+    score["route_selection"] = selection
     return score
 
 

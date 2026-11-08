@@ -297,7 +297,7 @@ class SosService {
     final String longitude = location.longitude.toStringAsFixed(6);
     final String localTime = timestamp.toLocal().toIso8601String();
 
-    return 'WALKSAFE SOS\n'
+    return 'RESILIENTSTEPS SOS\n'
         'I need help and may be in danger.\n\n'
         'Location: https://www.google.com/maps?q=$latitude,$longitude\n'
         'Coordinates: $latitude, $longitude\n'

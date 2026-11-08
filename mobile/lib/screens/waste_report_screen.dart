@@ -66,7 +66,7 @@ class _WasteReportScreenState extends State<WasteReportScreen> {
         });
       }
     } catch (_) {
-      // Keep initial location or null if unavailable
+      // Fall back to the initial location (or none).
     }
   }
 

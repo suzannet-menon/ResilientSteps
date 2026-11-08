@@ -38,6 +38,8 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
+    FocusScope.of(context).unfocus();
+
     setState(() {
       _loading = true;
       _errorMessage = null;
@@ -55,7 +57,8 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _errorMessage = AuthService.friendlyError(e);
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Auth sign-in error: $e');
       setState(() {
         _errorMessage =
             'Could not connect. Check your internet connection.';
@@ -111,6 +114,10 @@ class _LoginScreenState extends State<LoginScreen> {
       TextFormField(
         controller: _emailController,
         keyboardType: TextInputType.emailAddress,
+        autofillHints: const <String>[
+          AutofillHints.email,
+          AutofillHints.username,
+        ],
         autocorrect: false,
         style: const TextStyle(
           fontSize: 15,
@@ -168,6 +175,7 @@ class _LoginScreenState extends State<LoginScreen> {
       TextFormField(
         controller: _passwordController,
         obscureText: _obscurePassword,
+        autofillHints: const <String>[AutofillHints.password],
         style: const TextStyle(
           fontSize: 15,
           color: Color(0xFF142032),

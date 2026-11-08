@@ -75,7 +75,7 @@ INSERT INTO report_categories (module, code, label) VALUES
   ('safety', 'poor_lighting', 'Poor lighting')
 ON CONFLICT (code) DO NOTHING;
 
--- Seed infrastructure categories (from cityos_plan.xml)
+-- Seed infrastructure categories (from resilientsteps_plan.xml)
 INSERT INTO report_categories (module, code, label) VALUES
   ('infrastructure', 'pothole', 'Pothole'),
   ('infrastructure', 'streetlight', 'Broken Streetlight'),

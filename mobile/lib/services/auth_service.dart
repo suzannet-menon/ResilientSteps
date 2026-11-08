@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// All Supabase Auth operations go through this class.
@@ -34,12 +36,73 @@ class AuthService {
     }
   }
 
+  /// Decodes the `exp` claim of a Supabase JWT into a DateTime.
+  /// Returns null if the token is malformed or has no exp claim.
+  static DateTime? expiryOfToken(String? token) {
+    if (token == null) {
+      return null;
+    }
+    final List<String> parts = token.split('.');
+    if (parts.length < 2) {
+      return null;
+    }
+    try {
+      final String payload = utf8.decode(
+        base64Url.decode(base64Url.normalize(parts[1])),
+      );
+      final dynamic exp = (jsonDecode(payload) as Map<String, dynamic>)['exp'];
+      final int? expSeconds = exp is int ? exp : int.tryParse('$exp');
+      if (expSeconds == null) {
+        return null;
+      }
+      return DateTime.fromMillisecondsSinceEpoch(expSeconds * 1000);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Returns the current access token, refreshing the session first when
+  /// the token will expire within [margin] (avoids submitting stale tokens).
+  Future<String?> getFreshAccessToken({
+    Duration margin = const Duration(minutes: 2),
+  }) async {
+    try {
+      final String? token = accessToken;
+      final DateTime? expiry = expiryOfToken(token);
+      if (expiry != null && DateTime.now().isAfter(expiry.subtract(margin))) {
+        await refreshAccessToken();
+        return accessToken;
+      }
+      return token;
+    } catch (_) {
+      return accessToken;
+    }
+  }
+
+  /// Forces a session refresh and returns the (possibly renewed) token.
+  Future<String?> refreshAccessToken() async {
+    try {
+      await _client.auth.refreshSession();
+    } catch (_) {
+      // Ignore refresh failures; caller falls back to the old token / 401 UX.
+    }
+    return accessToken;
+  }
+
   Stream<AuthState> get authStateChanges {
     try {
       return _client.auth.onAuthStateChange;
     } catch (_) {
       return const Stream<AuthState>.empty();
     }
+  }
+
+  String get email {
+    final User? user = currentUser;
+    if (user == null) {
+      return '';
+    }
+    return user.email ?? '';
   }
 
   String get displayName {
@@ -96,17 +159,34 @@ class AuthService {
         msg.contains('invalid email or password')) {
       return 'Incorrect email or password. Please try again.';
     }
-    if (msg.contains('already registered')) {
+    if (msg.contains('already registered') ||
+        msg.contains('user already exists')) {
       return 'An account with this email already exists. Try signing in instead.';
     }
     if (msg.contains('password should be at least')) {
       return 'Password must be at least 6 characters.';
     }
-    if (msg.contains('unable to validate email')) {
+    if (msg.contains('unable to validate email') ||
+        msg.contains('invalid email')) {
       return 'Please enter a valid email address.';
+    }
+    if (msg.contains('email not confirmed')) {
+      return 'Please check your email to confirm your account before signing in.';
     }
     if (msg.contains('rate limit')) {
       return 'Too many attempts. Please wait a few minutes and try again.';
+    }
+    if (msg.contains('failed host lookup') ||
+        msg.contains('err_name_not_resolved') ||
+        msg.contains('connection refused') ||
+        msg.contains('network') ||
+        msg.contains('clientexception')) {
+      return 'Authentication server unreachable. Check your connection or server configuration.';
+    }
+    if (e.message.trim().isNotEmpty &&
+        !msg.contains('xmlhttprequest') &&
+        !msg.contains('socketexception')) {
+      return e.message.trim();
     }
     return 'Something went wrong. Please check your connection and try again.';
   }

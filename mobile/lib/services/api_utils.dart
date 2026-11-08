@@ -8,6 +8,11 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
+/// Message used when the server rejects a submitting request with 401 even
+/// after a token refresh, i.e. the session cannot be renewed automatically.
+const String kSessionExpiredMessage =
+    'Your session has expired. Please sign in again and try again.';
+
 /// Attempts to parse a JSON string as a [Map<String, dynamic>].
 /// Returns null on parse failure or non-map results.
 Map<String, dynamic>? tryParseJsonMap(String body) {

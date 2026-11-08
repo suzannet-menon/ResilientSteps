@@ -20,6 +20,11 @@ DEFAULT_INFRA_CATEGORIES = [
     {"code": "obstruction", "label": "Road Obstruction", "description": None, "module": "infrastructure"},
 ]
 
+# Allowed codes for the optional Nugen classifier (kept in sync with the seeds).
+INFRA_CATEGORY_CODES = tuple(
+    category["code"] for category in DEFAULT_INFRA_CATEGORIES
+)
+
 
 class InfraReportingService:
     async def get_categories(self, db: AsyncSession) -> List[Dict[str, Any]]:

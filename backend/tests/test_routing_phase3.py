@@ -112,8 +112,8 @@ class RoutingPhase3Tests(unittest.TestCase):
         }
 
         with patch(
-            "app.routers.routing.get_safe_route",
-            new=AsyncMock(return_value=mocked_route),
+            "app.routers.routing.get_route_candidates",
+            new=AsyncMock(return_value=[mocked_route]),
         ), patch(
             "app.routers.routing.score_route",
             new=AsyncMock(return_value=mocked_score),

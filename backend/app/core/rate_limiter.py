@@ -135,7 +135,6 @@ class RateLimiter:
             del self._buckets[key]
 
 
-# Pre-configured limiters for different endpoint groups.
 report_rate_limiter = RateLimiter(max_requests=5, window_seconds=3600)
 route_rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
 emergency_rate_limiter = RateLimiter(max_requests=3, window_seconds=600)

@@ -61,6 +61,7 @@ class NavigationController extends ChangeNotifier {
   static const double _maximumReliableAccuracyMeters = 35;
   static const int _offRouteConfirmationSamples = 3;
   static const Duration _rerouteCooldown = Duration(seconds: 15);
+  static const Duration _rescoreInterval = Duration(minutes: 3);
   static const double _cameraHeadingDeadbandDegrees = 1.5;
   static const double _maxCameraFollowDistanceMeters = 150.0;
 
@@ -98,6 +99,8 @@ class NavigationController extends ChangeNotifier {
 
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<CompassEvent>? _compassSubscription;
+  Timer? _rescoreTimer;
+  bool _isRescoring = false;
   NavigationCameraInstruction? _pendingCameraInstruction;
   final bool _isCustomPositionStream;
   final PositionStreamFactory _positionStreamFactory;
@@ -135,7 +138,55 @@ class NavigationController extends ChangeNotifier {
 
   VoidCallback? onArrived;
   VoidCallback? onRerouteRequired;
+  VoidCallback? onRescoreRequired;
   void Function(double heading)? onHeadingChanged;
+
+  /// Re-scores the active route's geometry against current incident data and
+  /// swaps the display payload without changing the planned geometry.
+  void applyRescore(ScoredRoute route) {
+    if (_navState != NavigationState.active ||
+        _isRerouting ||
+        _isRescoring) {
+      return;
+    }
+    if (_selectedRoute == null || route.points.isEmpty) {
+      return;
+    }
+    _isRescoring = true;
+    try {
+      _selectedRoute = route;
+      _routeSafetyScore = route.averageSafetyScore;
+      if (route.durationMinutes != null) {
+        _routeDurationMinutes = route.durationMinutes;
+      }
+      final LatLng? currentPoint = liveUserPoint;
+      if (currentPoint != null) {
+        _routeProgress = NavigationMath.splitRouteByNearestPoint(
+          currentPoint,
+          route.points,
+        );
+      }
+      _notifyIfNotDisposed();
+    } finally {
+      _isRescoring = false;
+    }
+  }
+
+  void _startRescoreTimer() {
+    _rescoreTimer ??= Timer.periodic(_rescoreInterval, (_) {
+      if (_navState != NavigationState.active ||
+          _isRerouting ||
+          _isRescoring) {
+        return;
+      }
+      onRescoreRequired?.call();
+    });
+  }
+
+  void _stopRescoreTimer() {
+    _rescoreTimer?.cancel();
+    _rescoreTimer = null;
+  }
 
   void beginTracking() {
     _startPositionTracking();
@@ -286,7 +337,7 @@ class NavigationController extends ChangeNotifier {
     if (preserveVisibleRoute) {
       return;
     }
-
+    _stopRescoreTimer();
     _selectedRoute = null;
     _currentRoute = null;
     _routeProgress = null;
@@ -367,6 +418,7 @@ class NavigationController extends ChangeNotifier {
     _offRouteSampleCount = 0;
     _lastProgressPosition = initialProgress == null ? null : currentPoint;
     _routeProgress = initialProgress;
+    _startRescoreTimer();
 
     if (currentPoint != null) {
       final double? heading = NavigationMath.normalizeHeading(
@@ -388,6 +440,7 @@ class NavigationController extends ChangeNotifier {
     if (oldState != _navState) {
       _updatePositionTrackingSettings();
     }
+    _stopRescoreTimer();
     _compassSubscription?.cancel();
     _compassSubscription = null;
     _destinationLatLng = null;
@@ -454,6 +507,7 @@ class NavigationController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _stopRescoreTimer();
     _positionSubscription?.cancel();
     _compassSubscription?.cancel();
     super.dispose();

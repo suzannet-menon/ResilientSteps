@@ -28,9 +28,9 @@ are outside the current scope.
 | `step_8_comfort_route_and_observations.md` | Current | Comfort composition, `prefer` parameter, observation corrections, mobile fields |
 | `BASELINE.md` | Current reference | Verified tables, endpoints, cache behaviour, and test inventory |
 | `step_1` … `step_6` | Historical | Origin of the module, reporting, config, and deployment structure |
-| `CityOS_Engineering_Handbook_Volume_I.md` | Legacy | Original platform vision |
-| `CityOS_ADR_System_Spec.md` | Legacy | Original architecture decisions |
-| `cityos_plan.xml` | Legacy | Original module plan |
+| `ResilientSteps_Engineering_Handbook_Volume_I.md` | Legacy | Original platform vision |
+| `ResilientSteps_ADR_System_Spec.md` | Legacy | Original architecture decisions |
+| `resilientsteps_plan.xml` | Legacy | Original module plan |
 
 Legacy documents carry a superseded banner. Where a legacy document conflicts
 with the current code or with Phases 7–8, the code and Phases 7–8 take
@@ -46,13 +46,14 @@ precedence.
 | 4 | Authority dashboard | Implemented | Out of scope |
 | 5 | Deployment and configuration | Implemented | `config/` layout used by Phase 7 |
 | 6 | Multi-city support | Implemented | Out of scope |
-| 7 | Heat & Shade Data Layer | Not started | Required |
-| 8 | Comfort Route & Live Observations | Not started | Required |
-| 9 | Shade-preferring route alternatives | Backlog | Optional |
+| 7 | Heat & Shade Data Layer | Implemented (2026-10-18 dataset `20261018-064339`) | `step_7_heat_and_shade_data.md` |
+| 8 | Comfort Route & Live Observations | Implemented | `step_8_comfort_route_and_observations.md`, `/route-safe` |
+| 9 | Score-preferring route alternatives | Implemented (2026-11-01) | Safest-alternate selection: candidates fetched + scored + silent pick, `routing.py` `_select_route` |
 
 Indicative schedule for a 15-day window: Phase 7 in 5–6 days, Phase 8 in 5–6
 days, with a 3-day buffer. The data layer (Phase 7) has priority; the
-alternative-route work (Phase 9) is the first item to defer.
+alternative-route work (Phase 9) is the first item to defer. (Historical
+planning note — Phases 7–9 shipped as logged above.)
 
 ## Scope boundary
 

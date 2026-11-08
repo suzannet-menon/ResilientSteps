@@ -133,8 +133,8 @@ class ApiEndpointTests(unittest.TestCase):
         }
 
         with patch(
-            "app.routers.routing.get_safe_route",
-            new=AsyncMock(return_value=mocked_route),
+            "app.routers.routing.get_route_candidates",
+            new=AsyncMock(return_value=[mocked_route]),
         ), patch(
             "app.routers.routing.score_route",
             new=AsyncMock(return_value=mocked_score),
@@ -209,23 +209,30 @@ class ApiEndpointTests(unittest.TestCase):
     def test_report_alias_returns_response_contract(self):
         app.dependency_overrides[require_auth] = lambda: "user-1"
         try:
-            with patch(
-                "app.routers.reports.reporting_service.create_report",
-                new=AsyncMock(return_value={"id": "report-1", "status": "received"}),
+            # TestClient executes BackgroundTasks after the response: keep the
+            # Nugen classifier OFF so no live API call can happen in CI.
+            with patch.dict(
+                "os.environ",
+                {"NUGEN_API_KEY": "", "NUGEN_MODEL": ""},
+                clear=False,
             ):
-                with TestClient(app) as client:
-                    response = client.post(
-                        "/reports",
-                        json={
-                            "user_hash": "user-1",
-                            "incident_type": "Poor lighting",
-                            "severity": 3,
-                            "lat": 18.52,
-                            "lon": 73.85,
-                            "description": "Dark segment",
-                            "metadata": {},
-                        },
-                    )
+                with patch(
+                    "app.routers.reports.reporting_service.create_report",
+                    new=AsyncMock(return_value={"id": "report-1", "status": "received"}),
+                ):
+                    with TestClient(app) as client:
+                        response = client.post(
+                            "/reports",
+                            json={
+                                "user_hash": "user-1",
+                                "incident_type": "Poor lighting",
+                                "severity": 3,
+                                "lat": 18.52,
+                                "lon": 73.85,
+                                "description": "Dark segment",
+                                "metadata": {},
+                            },
+                        )
         finally:
             app.dependency_overrides.pop(require_auth, None)
 

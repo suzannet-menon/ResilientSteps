@@ -3,117 +3,164 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ResilientSteps — Authority Dashboard</title>
+  <title>ResilientSteps — Municipal Complaint Intelligence</title>
+  <link rel="icon" type="image/png" href="f-logo.png" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="dashboard-header">
-    <div class="brand">
-      <h1>ResilientSteps Municipal Dashboard</h1>
-      <span class="subtitle">Unified Safety, Infrastructure & Sanitation Operations</span>
-    </div>
-    <div class="auth-bar">
-      <label for="adminKey">Admin Key:</label>
-      <input type="password" id="adminKey" placeholder="Enter X-Admin-Key" />
-      <button id="saveKeyBtn">Save</button>
-    </div>
-  </div>
+  <div class="app-shell">
+    <!-- SIDEBAR — vertical, fixed width, full height (ProcurePulse layout) -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <img class="brand-logo" src="f-logo.png" alt="ResilientSteps logo" />
+        <h1>Resilient<span class="accent">Steps</span></h1>
+        <p>Municipal Complaint Dashboard</p>
+      </div>
 
-  <div class="dashboard-container">
-    <!-- Top Stats Row -->
-    <div class="stats-row">
-      <div class="card stat-card">
-        <h3>Total Reports</h3>
-        <p id="statTotal">0</p>
-      </div>
-      <div class="card stat-card warning">
-        <h3>Pending Moderation</h3>
-        <p id="statPending">0</p>
-      </div>
-      <div class="card stat-card success">
-        <h3>Verified Reports</h3>
-        <p id="statVerified">0</p>
-      </div>
-      <div class="card stat-card danger">
-        <h3>Rejected Reports</h3>
-        <p id="statRejected">0</p>
-      </div>
-      <div class="card stat-card info">
-        <h3>Avg Moderation Time</h3>
-        <p id="statAvgHours">0.0 hrs</p>
-      </div>
-    </div>
+      <nav class="side-nav">
+        <button class="nav-btn active" data-view="map" id="navMapView">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+          City Overview
+        </button>
+        <button class="nav-btn" data-view="reports" id="navReportsView">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>
+          Incident Management
+        </button>
+      </nav>
 
-    <!-- Middle Section: Breakdown & Map -->
-    <div class="grid-2col">
-      <div class="card">
-        <h2>Module Breakdown</h2>
-        <ul class="breakdown-list" id="moduleBreakdownList">
-          <li><span>Safety Reports:</span> <strong id="cntSafety">0</strong></li>
-          <li><span>Infrastructure Issues:</span> <strong id="cntInfra">0</strong></li>
-          <li><span>Waste & Sanitation:</span> <strong id="cntWaste">0</strong></li>
-        </ul>
-        <hr/>
-        <h2>Quick Actions</h2>
-        <div class="action-buttons">
-          <button id="refreshViewBtn" class="btn">Refresh Ward View</button>
-          <a href="/dashboard/export?format=csv" id="exportCsvLink" class="btn btn-secondary" target="_blank">Export CSV</a>
-          <a href="/dashboard/export?format=json" id="exportJsonLink" class="btn btn-secondary" target="_blank">Export JSON</a>
+      <div class="stat-group">
+        <div class="side-label">Reports Snapshot</div>
+        <div class="side-group tree">
+          <button class="tree-root" data-view="reports" data-status="">
+            All Reports <span class="tree-count" id="sideStatTotal">0</span>
+          </button>
+          <div class="tree-children">
+            <button class="tree-node sev-pending" data-view="reports" data-status="pending">
+              <span class="tree-g">├</span><span class="label-left">Pending</span>
+              <span class="tree-count" id="sideStatPending">0</span>
+            </button>
+            <button class="tree-node sev-verified" data-view="reports" data-status="verified">
+              <span class="tree-g">├</span><span class="label-left">Verified</span>
+              <span class="tree-count" id="sideStatVerified">0</span>
+            </button>
+            <button class="tree-node sev-rejected" data-view="reports" data-status="rejected">
+              <span class="tree-g">└</span><span class="label-left">Rejected</span>
+              <span class="tree-count" id="sideStatRejected">0</span>
+            </button>
+          </div>
+          <button class="tree-root type-row" data-view="reports" data-type="safety">
+            <span class="bd-left"><span class="dot dot-safety"></span> Safety</span>
+            <span class="tree-count" id="cntSafety">0</span>
+          </button>
+          <button class="tree-root type-row" data-view="reports" data-type="infrastructure">
+            <span class="bd-left"><span class="dot dot-infra"></span> Infrastructure</span>
+            <span class="tree-count" id="cntInfra">0</span>
+          </button>
+          <button class="tree-root type-row" data-view="reports" data-type="waste">
+            <span class="bd-left"><span class="dot dot-waste"></span> Waste</span>
+            <span class="tree-count" id="cntWaste">0</span>
+          </button>
         </div>
       </div>
 
-      <div class="card map-card">
-        <h2>City Overview & Ward Map</h2>
-        <div id="map"></div>
+      <div class="auth-bar">
+        <label for="adminKey">Admin Key</label>
+        <input type="password" id="adminKey" placeholder="Enter X-Admin-Key" />
+        <button class="save-btn" id="saveKeyBtn">Save</button>
       </div>
-    </div>
+    </aside>
 
-    <!-- Bottom Section: Moderation Table -->
-    <div class="card">
-      <div class="table-header-row">
-        <h2>Incident Management & Moderation</h2>
-        <div class="filter-controls">
-          <select id="filterStatus">
-            <option value="pending">Status: Pending</option>
-            <option value="verified">Status: Verified</option>
-            <option value="rejected">Status: Rejected</option>
-          </select>
-          <select id="filterReportType">
-            <option value="">All Module Types</option>
-            <option value="safety">Safety</option>
-            <option value="infrastructure">Infrastructure</option>
-            <option value="waste">Waste</option>
-          </select>
-          <button id="loadReportsBtn" class="btn">Filter</button>
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+      <!-- View 1: Overview (opened by default; map + KPIs) -->
+      <section id="view-map" class="view active">
+        <!-- KPI strip — hairline-divided cells -->
+        <div class="kpi-strip">
+          <button class="kpi" data-view="reports" data-status="">
+            <div class="kpi-label">Total Reports</div>
+            <div class="kpi-value" id="statTotal">0</div>
+          </button>
+          <button class="kpi c-red" data-view="reports" data-status="pending">
+            <div class="kpi-label">Pending Moderation</div>
+            <div class="kpi-value" id="statPending">0</div>
+          </button>
+          <button class="kpi c-emerald" data-view="reports" data-status="verified">
+            <div class="kpi-label">Verified Reports</div>
+            <div class="kpi-value" id="statVerified">0</div>
+          </button>
+          <button class="kpi" data-view="reports" data-status="rejected">
+            <div class="kpi-label">Rejected Reports</div>
+            <div class="kpi-value" id="statRejected">0</div>
+          </button>
         </div>
-      </div>
 
-      <div class="table-container">
-        <table id="reportsTable">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Type</th>
-              <th>Category</th>
-              <th>Description</th>
-              <th>Location</th>
-              <th>Severity</th>
-              <th>Submitted</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="reportsTableBody">
-            <tr><td colspan="9" class="text-center">Loading reports...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+        <div class="card">
+          <h2 class="card-h2">
+            City Overview &amp; Ward Map
+            <span class="note">red pins mark complaint locations — click one to zoom in</span>
+          </h2>
+          <div class="map-notice" id="mapNotice">Paste your admin key (left sidebar) to load complaint pins.</div>
+          <div id="map"></div>
+        </div>
+      </section>
+
+      <!-- View 2: Incident Management & Moderation -->
+      <section id="view-reports" class="view">
+        <div class="card">
+          <div class="table-header-row">
+            <h2 class="card-h2" style="margin-bottom:0;">
+              Incident Management &amp; Moderation
+              <span class="note">newest first</span>
+            </h2>
+            <div class="filter-controls">
+              <select id="filterStatus">
+                <option value="pending">Status: Pending</option>
+                <option value="verified">Status: Verified</option>
+                <option value="rejected">Status: Rejected</option>
+                <option value="">Status: All</option>
+              </select>
+              <select id="filterReportType">
+                <option value="">All Module Types</option>
+                <option value="safety">Safety</option>
+                <option value="infrastructure">Infrastructure</option>
+                <option value="waste">Waste</option>
+              </select>
+              <button id="loadReportsBtn" class="filter-btn">Filter</button>
+              <button id="refreshViewBtn" class="filter-btn ghost">Refresh Ward View</button>
+              <button id="exportCsvBtn" class="filter-btn ghost" title="Exports the currently filtered reports (module + status). Warns if there is nothing to export.">Export CSV</button>
+              <button id="exportJsonBtn" class="filter-btn ghost" title="Exports the currently filtered reports (module + status). Warns if there is nothing to export.">Export JSON</button>
+            </div>
+          </div>
+
+          <div class="table-container">
+            <table id="reportsTable">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Type</th>
+                  <th>Category</th>
+                  <th>Description</th>
+                  <th>Location</th>
+                  <th>Severity</th>
+                  <th>Submitted</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="reportsTableBody">
+                <tr><td colspan="9" class="text-center">Loading reports...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="map.js"></script>
-  <script src="dashboard.js"></script>
+  <!-- Version query busts stale cached builds after export-name/UI changes. -->
+  <script src="dashboard.js?v=20261104"></script>
 </body>
 </html>

@@ -236,39 +236,47 @@ class _NavigationCardState extends State<NavigationCard> {
                         children: <Widget>[
                           Row(
                             children: <Widget>[
-                              Text(
-                                'Navigating',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleMedium
-                                    ?.copyWith(
-                                      color: const Color(0xFF0E1B2A),
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                              Flexible(
+                                child: Text(
+                                  'Navigating',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
+                                        color: const Color(0xFF0E1B2A),
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                ),
                               ),
                               const SizedBox(width: 8),
                               if (route.comfortLevel == 'comfortable')
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFDCF5E8),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    route.comfortScore != null
-                                        ? 'CLIMATE SAFE ${route.comfortScore!.round()}%'
-                                        : 'CLIMATE SAFE',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelSmall
-                                        ?.copyWith(
-                                          color: const Color(0xFF1B6B3A),
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: 0.4,
-                                        ),
+                                Flexible(
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFDCF5E8),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      route.comfortScore != null
+                                          ? 'CLIMATE SAFE ${route.comfortScore!.round()}%'
+                                          : 'CLIMATE SAFE',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(
+                                            color: const Color(0xFF1B6B3A),
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: 0.4,
+                                          ),
+                                    ),
                                   ),
                                 ),
                             ],
@@ -331,23 +339,23 @@ class _NavigationCardState extends State<NavigationCard> {
                 ],
               ),
               const SizedBox(height: 12),
-              // Route selector chips
-              Row(
-                children: <Widget>[
-                  _RouteChip(
+              // Route selector chips (Wrap so they wrap onto a second line
+              // instead of overflowing on narrow screens or large text scale)
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                children: <Widget>[                  _RouteChip(
                     label: 'Climate-Smart  •  $etaMinutes min',
                     selected: true,
                     onTap: () {},
                   ),
-                  if (route.durationMinutes != null) ...<Widget>[
-                    const SizedBox(width: 10),
+                  if (route.durationMinutes != null)
                     _RouteChip(
                       label:
                           'Fastest  •  ${route.durationMinutes!.round()} min',
                       selected: false,
                       onTap: () {},
                     ),
-                  ],
                 ],
               ),
             ],
@@ -1804,13 +1812,17 @@ class _RouteChip extends StatelessWidget {
               ),
               const SizedBox(width: 4),
             ],
-            Text(
-              label,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: selected
-                    ? Colors.white
-                    : const Color(0xFF4E5E73),
-                fontWeight: FontWeight.w600,
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: selected
+                      ? Colors.white
+                      : const Color(0xFF4E5E73),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],

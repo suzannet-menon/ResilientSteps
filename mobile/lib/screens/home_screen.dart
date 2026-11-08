@@ -26,6 +26,7 @@ import '../widgets/saved_place_chips.dart';
 import '../widgets/nearby_places_sheet.dart';
 import 'destination_search_screen.dart';
 import 'login_screen.dart';
+import 'saved_places_screen.dart';
 import 'settings_profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -83,9 +84,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Color get _profileIconColor =>
       AuthService.instance.isLoggedIn ? Colors.blue : Colors.grey;
 
-  String get _profileTooltip => AuthService.instance.isLoggedIn
-      ? AuthService.instance.displayName
-      : 'Sign in';
+  String get _profileTooltip {
+    if (!AuthService.instance.isLoggedIn) {
+      return 'Sign in';
+    }
+    final String name = AuthService.instance.displayName.trim();
+    return name.isNotEmpty ? name : 'Your Account';
+  }
 
   List<Marker> get _markers {
     // Origin pill: visible whenever a destination exists â€” the route's start
@@ -106,7 +111,13 @@ class _HomeScreenState extends State<HomeScreen> {
       zoom: _currentZoom,
       origin: origin,
       originLabel: _explicitOrigin?.title,
-    )..addAll(MapLayersBuilder.buildNearbyMarkers(_nearbyPlaces));
+    )
+      ..addAll(MapLayersBuilder.buildNearbyMarkers(_nearbyPlaces))
+      ..addAll(
+        MapLayersBuilder.buildIncidentMarkers(
+          route?.incidentPoints ?? const <RouteIncidentPoint>[],
+        ),
+      );
   }
 
   List<Polyline> get _routePolylines {
@@ -131,11 +142,17 @@ class _HomeScreenState extends State<HomeScreen> {
       ..onRerouteRequired = () {
         unawaited(_handleRerouteRequired());
       }
+      ..onRescoreRequired = () {
+        unawaited(_handleRescoreRequired());
+      }
       ..beginTracking();
     _authSubscription = AuthService.instance.authStateChanges.listen((
       AuthState event,
     ) {
       if (event.event == AuthChangeEvent.signedIn) {
+        if (mounted) {
+          setState(() {});
+        }
         SavedPlacesService.instance
             .syncFromSupabase()
             .then((_) {
@@ -206,6 +223,30 @@ class _HomeScreenState extends State<HomeScreen> {
       preserveVisibleRoute: true,
     );
     _navController.completeReroute();
+  }
+
+  Future<void> _handleRescoreRequired() async {
+    if (_navController.isRerouting) {
+      return;
+    }
+    final ScoredRoute? route = _navController.selectedRoute;
+    if (route == null || route.points.length < 2) {
+      return;
+    }
+    try {
+      final ScoredRoute? fresh = await _routingService.rescoreRoute(
+        route.points,
+      );
+      if (!mounted || fresh == null) {
+        return;
+      }
+      if (_navController.navState == NavigationState.active &&
+          !_navController.isRerouting) {
+        _navController.applyRescore(fresh);
+      }
+    } catch (e) {
+      debugPrint('HomeScreen: live rescore failed: $e');
+    }
   }
 
   void _resetMapBearing() {
@@ -756,23 +797,151 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openProfileScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => AuthService.instance.isLoggedIn
-            ? const SettingsProfileScreen()
-            : const LoginScreen(),
+    if (!AuthService.instance.isLoggedIn) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+      );
+      return;
+    }
+    unawaited(_showProfileDropdown());
+  }
+
+  Future<void> _showProfileDropdown() async {
+    final AuthService auth = AuthService.instance;
+    final RenderBox? overlayBox =
+        Overlay.of(context).context.findRenderObject() as RenderBox?;
+    final Size overlaySize = overlayBox?.size ?? MediaQuery.of(context).size;
+    final double top = MediaQuery.of(context).padding.top + 60;
+    final String? choice = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        overlaySize.width > 280 ? overlaySize.width - 260 : 0,
+        top,
+        0,
+        0,
       ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      elevation: 8,
+      items: <PopupMenuEntry<String>>[
+        PopupMenuItem<String>(
+          enabled: false,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: <Widget>[
+              const CircleAvatar(
+                radius: 20,
+                child: Icon(Icons.person, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      auth.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      auth.email,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'settings',
+          height: 44,
+          child: Text('Safety customization'),
+        ),
+        const PopupMenuItem<String>(
+          value: 'report',
+          height: 44,
+          child: Text('Incident reporting'),
+        ),
+        const PopupMenuItem<String>(
+          value: 'saved',
+          height: 44,
+          child: Text('Saved places'),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: 'sign_out',
+          height: 44,
+          child: Text('Sign Out', style: TextStyle(color: Colors.red)),
+        ),
+      ],
     );
+    if (choice == null || !mounted) {
+      return;
+    }
+    switch (choice) {
+      case 'settings':
+      case 'saved':
+        final VoidCallback onTap;
+        if (choice == 'saved') {
+          onTap = () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SavedPlacesScreen(),
+                ),
+              );
+        } else {
+          onTap = () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SettingsProfileScreen(),
+                ),
+              );
+        }
+        onTap();
+      case 'report':
+        await _openIncidentReport();
+      case 'sign_out':
+        final bool? confirm = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext dialogContext) => AlertDialog(
+            title: const Text('Sign out?'),
+            content: const Text(
+              'You will need to sign in again to report incidents or use SOS.',
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text(
+                  'Sign out',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        );
+        if (confirm == true && mounted) {
+          await AuthService.instance.signOut();
+        }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final NavigationState navState = _navController.navState;
-    // The idle bottom sheet is now compact: just the search field (~76px),
-    // or ~136px tall when a failed destination stays in the sheet.
-    // The planning/loading card is the route-comparison sheet (~400px).
-    // The active collapsed strip (with metric cards) is taller (~300px).
-    // While the origin banner is unanswered it adds ~70px to the idle sheet.
+    // Idle bottom sheet: search field only (~76px, ~136px when a failed
+    // destination stays in the sheet). Planning/loading comparison sheet is
+    // ~400px; the active collapsed strip with metric cards ~300px; unanswered
+    // origin banner adds ~70px.
     final bool originNeedsConfirm =
         _originLabelLoading ||
         (_explicitOrigin == null && !_originConfirmed);

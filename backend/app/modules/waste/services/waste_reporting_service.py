@@ -42,6 +42,11 @@ DEFAULT_WASTE_CATEGORIES = [
     },
 ]
 
+# Allowed codes for the optional Nugen classifier (kept in sync with the seeds).
+WASTE_CATEGORY_CODES = tuple(
+    category["code"] for category in DEFAULT_WASTE_CATEGORIES
+)
+
 
 class WasteReportingService:
     async def get_categories(self, db: AsyncSession) -> List[Dict[str, Any]]:

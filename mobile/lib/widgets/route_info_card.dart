@@ -179,6 +179,13 @@ class _ReadyState extends StatelessWidget {
         ? '${distKm.toStringAsFixed(1)} km'
         : '${route.totalDistanceMeters.round()} m';
 
+    // R-104: verified reports moved this score — show before -> after.
+    final double? scoreDelta = route.incidentScoreDelta;
+    final double? baseline = route.baselineSafetyScore;
+    final bool showReportImpact =
+        scoreDelta != null && scoreDelta >= 0.5 && baseline != null;
+    final int reportCount = route.incidentPoints.length;
+
     const Color deepGreen = Color(0xFF1B6B3A);
 
     return Column(
@@ -275,22 +282,31 @@ class _ReadyState extends StatelessWidget {
             color: const Color(0xFFF6F8FC),
             borderRadius: BorderRadius.circular(14),
           ),
-          child: Row(
+          // Wrap, not Row: on narrow phones (and with large text scale) the
+          // three labels are wider than the card, which overflowed the Row.
+          child: Wrap(
+            spacing: 20,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
-              const Icon(
-                Icons.wb_sunny_outlined,
-                size: 18,
-                color: Color(0xFF8A9BB0),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const Icon(
+                    Icons.wb_sunny_outlined,
+                    size: 18,
+                    color: Color(0xFF8A9BB0),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Safety: $safetyScore%',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF3D4F62),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
-              Text(
-                'Safety: $safetyScore%',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF3D4F62),
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(width: 20),
               Text(
                 'Shade: $shadeLabel',
                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -298,8 +314,7 @@ class _ReadyState extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              if (route.heatIndexLabel != null) ...<Widget>[
-                const SizedBox(width: 20),
+              if (route.heatIndexLabel != null)
                 Text(
                   'Heat: ${route.heatIndexLabel}',
                   style: theme.textTheme.bodyMedium?.copyWith(
@@ -307,7 +322,6 @@ class _ReadyState extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-              ],
             ],
           ),
         ),
@@ -323,23 +337,64 @@ class _ReadyState extends StatelessWidget {
             ),
           ),
         ],
+        if (showReportImpact) ...<Widget>[
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFDF3E7),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            // Wrap, not Row: the before/after text plus report count must
+            // stack instead of overflowing on narrow screens (same pattern
+            // as the stats strip above).
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 6,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: <Widget>[
+                const Icon(
+                  Icons.location_on_rounded,
+                  size: 18,
+                  color: Color(0xFFB07020),
+                ),
+                Text(
+                  'Reports impact: ${baseline.round()}% → '
+                  '${route.averageSafetyScore.round()}% safety',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF7A4B10),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '−${scoreDelta.toStringAsFixed(1)} pts from '
+                  '$reportCount verified report${reportCount == 1 ? '' : 's'}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: const Color(0xFFB07020),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 14),
-        // Route selector chips
-        Row(
+        // Route selector chips (Wrap so they stack instead of overflowing
+        // on narrow screens).
+        Wrap(
+          spacing: 10,
+          runSpacing: 8,
           children: <Widget>[
             _RouteOptionChip(
               label: 'Climate-Smart',
               selected: true,
               onTap: () {},
             ),
-            if (route.durationMinutes != null) ...<Widget>[
-              const SizedBox(width: 10),
+            if (route.durationMinutes != null)
               _RouteOptionChip(
                 label: 'Fastest • ${route.durationMinutes!.round()} min',
                 selected: false,
                 onTap: () {},
               ),
-            ],
           ],
         ),
         const SizedBox(height: 18),
@@ -388,7 +443,6 @@ class _ReadyState extends StatelessWidget {
   }
 }
 
-
 class _RouteOptionChip extends StatelessWidget {
   const _RouteOptionChip({
     required this.label,
@@ -411,9 +465,7 @@ class _RouteOptionChip extends StatelessWidget {
           color: Colors.transparent,
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
-            color: selected
-                ? const Color(0xFF0E1B2A)
-                : const Color(0xFFD0D8E4),
+            color: selected ? const Color(0xFF0E1B2A) : const Color(0xFFD0D8E4),
             width: selected ? 1.5 : 1.0,
           ),
         ),
@@ -428,13 +480,17 @@ class _RouteOptionChip extends StatelessWidget {
               ),
               const SizedBox(width: 4),
             ],
-            Text(
-              label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: selected
-                    ? const Color(0xFF0E1B2A)
-                    : const Color(0xFF8A9BB0),
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: selected
+                      ? const Color(0xFF0E1B2A)
+                      : const Color(0xFF8A9BB0),
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
               ),
             ),
           ],

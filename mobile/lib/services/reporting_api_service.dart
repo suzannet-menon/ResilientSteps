@@ -18,15 +18,23 @@ class ReportSubmissionException implements Exception {
 }
 
 class ReportingApiService {
-  ReportingApiService({http.Client? client, String? baseUrl})
-    : _client = client ?? http.Client(),
-      _baseUrl = baseUrl ?? _envBaseUrl;
+  ReportingApiService({
+    http.Client? client,
+    String? baseUrl,
+    Future<String?> Function()? tokenProvider,
+    Future<String?> Function()? refreshProvider,
+  }) : _client = client ?? http.Client(),
+       _baseUrl = baseUrl ?? _envBaseUrl,
+       _tokenProvider = tokenProvider ?? AuthService.instance.getFreshAccessToken,
+       _refreshProvider = refreshProvider ?? AuthService.instance.refreshAccessToken;
 
   static const String _envBaseUrl = String.fromEnvironment('API_BASE_URL');
   static const Duration _timeout = Duration(seconds: 10);
 
   final http.Client _client;
   final String _baseUrl;
+  final Future<String?> Function() _tokenProvider;
+  final Future<String?> Function() _refreshProvider;
 
   Future<Map<String, dynamic>> submitIncidentReport({
     required String userHash,
@@ -48,21 +56,22 @@ class ReportingApiService {
       'metadata': <String, dynamic>{'source': 'mobile_app'},
     };
 
-    final String? token = accessToken ?? AuthService.instance.accessToken;
+    final String? token = accessToken ?? await _tokenProvider();
+
+    http.Response response = await _postReport(uri, token, payload);
+
+    if (response.statusCode == 401 && accessToken == null) {
+      final String? refreshed = await _refreshProvider();
+      if (refreshed != null && refreshed != token) {
+        response = await _postReport(uri, refreshed, payload);
+      }
+    }
 
     try {
-      final http.Response response = await _client
-          .post(
-            uri,
-            headers: <String, String>{
-              'Content-Type': 'application/json',
-              if (token != null) 'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode(payload),
-          )
-          .timeout(_timeout);
-
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (response.statusCode == 401) {
+          throw ReportSubmissionException(api_utils.kSessionExpiredMessage);
+        }
         throw const ReportSubmissionException(
           'Report could not be submitted. Please try again.',
         );
@@ -75,6 +84,8 @@ class ReportingApiService {
         );
       }
       return parsed;
+    } on ReportSubmissionException {
+      rethrow;
     } on SocketException catch (_) {
       throw const ReportSubmissionException(
         'No internet connection. Please check your network and try again.',
@@ -83,13 +94,28 @@ class ReportingApiService {
       throw const ReportSubmissionException(
         'The server took too long to respond. Please try again.',
       );
-    } on ReportSubmissionException {
-      rethrow;
     } catch (_) {
       throw const ReportSubmissionException(
         'Report could not be submitted. Please try again.',
       );
     }
+  }
+
+  Future<http.Response> _postReport(
+    Uri uri,
+    String? token,
+    Map<String, dynamic> payload,
+  ) {
+    return _client
+        .post(
+          uri,
+          headers: <String, String>{
+            'Content-Type': 'application/json',
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(payload),
+        )
+        .timeout(_timeout);
   }
 
   Future<Map<String, dynamic>?> submitEmergencyAlert({
@@ -112,7 +138,7 @@ class ReportingApiService {
       'metadata': <String, dynamic>{'source': 'mobile_app'},
     };
 
-    final String? token = accessToken ?? AuthService.instance.accessToken;
+    final String? token = accessToken ?? await _tokenProvider();
 
     return _postJson(uri, payload, accessToken: token);
   }
@@ -123,7 +149,7 @@ class ReportingApiService {
     String? accessToken,
   }) async {
     try {
-      final http.Response response = await _client
+      http.Response response = await _client
           .post(
             uri,
             headers: <String, String>{
@@ -134,7 +160,25 @@ class ReportingApiService {
           )
           .timeout(_timeout);
 
+      if (response.statusCode == 401 && accessToken != null) {
+        final String? refreshed = await _refreshProvider();
+        if (refreshed != null && refreshed != accessToken) {
+          response = await _client
+              .post(
+                uri,
+                headers: <String, String>{
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer $refreshed',
+                },
+                body: jsonEncode(payload),
+              )
+              .timeout(_timeout);
+        }
+      }
+
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        debugPrint('ReportingApiService: POST $uri returned '
+            '${response.statusCode}');
         return null;
       }
 

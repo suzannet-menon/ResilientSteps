@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -246,7 +247,139 @@ void main() {
       );
       expect(updatedProgress.remainingPoints.length, lessThanOrEqualTo(2));
     });
+
+    test('applyRescore swaps display payload while keeping geometry', () async {
+      final StreamController<Position> positionUpdates =
+          StreamController<Position>();
+      final NavigationController controller = NavigationController(
+        positionStreamFactory: () => positionUpdates.stream,
+        compassStreamFactory: () => const Stream<CompassEvent>.empty(),
+      );
+      addTearDown(() async {
+        controller.dispose();
+        await positionUpdates.close();
+      });
+
+      controller.beginTracking();
+      positionUpdates.add(
+        _position(latitude: 18.5200, longitude: 73.8560, heading: 90),
+      );
+      await _flushEvents();
+
+      controller.applyLoadedRoute(
+        route: _buildRoute(),
+        destination: const LatLng(18.5200, 73.8580),
+        keepActive: false,
+      );
+      controller.startRoute();
+
+      final ScoredRoute original = controller.selectedRoute!;
+      final ScoredRoute rescored = _buildRescoredRoute();
+
+      controller.applyRescore(rescored);
+
+      expect(controller.selectedRoute, same(rescored));
+      expect(controller.routeSafetyScore, 55);
+      expect(controller.selectedRoute!.points, original.points);
+      expect(controller.navState, NavigationState.active);
+      expect(controller.routeProgress, isNotNull);
+    });
+
+    test('applyRescore is ignored outside active navigation', () {
+      final NavigationController controller = NavigationController(
+        positionStreamFactory: () => const Stream<Position>.empty(),
+        compassStreamFactory: () => const Stream<CompassEvent>.empty(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.applyLoadedRoute(
+        route: _buildRoute(),
+        destination: const LatLng(18.5200, 73.8580),
+        keepActive: false,
+      );
+
+      controller.applyRescore(_buildRescoredRoute());
+
+      expect(controller.navState, NavigationState.planning);
+      expect(controller.selectedRoute!.averageSafetyScore, 79);
+      expect(controller.routeSafetyScore, 79);
+    });
+
+    test('rescore ticker fires only while navigation is active', () {
+      fakeAsync((async) {
+        final NavigationController controller = NavigationController(
+          positionStreamFactory: () => const Stream<Position>.empty(),
+          compassStreamFactory: () => const Stream<CompassEvent>.empty(),
+        );
+        addTearDown(controller.dispose);
+
+        controller.applyLoadedRoute(
+          route: _buildRoute(),
+          destination: const LatLng(18.5200, 73.8580),
+          keepActive: false,
+        );
+        controller.startRoute();
+
+        var rescoreCalls = 0;
+        controller.onRescoreRequired = () => rescoreCalls++;
+
+        async.elapse(const Duration(minutes: 3));
+        expect(rescoreCalls, 1);
+
+        async.elapse(const Duration(minutes: 3));
+        expect(rescoreCalls, 2);
+
+        controller.stopNavigation();
+        async.elapse(const Duration(minutes: 10));
+        expect(rescoreCalls, 2);
+      });
+    });
   });
+}
+
+ScoredRoute _buildRescoredRoute() {
+  return const ScoredRoute(
+    points: [
+      LatLng(18.5200, 73.8560),
+      LatLng(18.5200, 73.8570),
+      LatLng(18.5200, 73.8580),
+    ],
+    segments: [
+      RouteSegmentSafety(
+        start: LatLng(18.5200, 73.8560),
+        end: LatLng(18.5200, 73.8570),
+        distanceMeters: 110,
+        safetyScore: 52,
+        incidentRisk: 0.4,
+        timeOfDayRisk: 0.1,
+        lightingLevel: 0.8,
+        crowdDensity: 0.4,
+        distanceWeight: 1,
+        safetyPenalty: 12,
+        risk: 14,
+        safetyLevel: 'CAUTION',
+      ),
+      RouteSegmentSafety(
+        start: LatLng(18.5200, 73.8570),
+        end: LatLng(18.5200, 73.8580),
+        distanceMeters: 110,
+        safetyScore: 60,
+        incidentRisk: 0.3,
+        timeOfDayRisk: 0.1,
+        lightingLevel: 0.7,
+        crowdDensity: 0.5,
+        distanceWeight: 1,
+        safetyPenalty: 8,
+        risk: 9,
+        safetyLevel: 'CAUTION',
+      ),
+    ],
+    totalDistanceMeters: 220,
+    averageSafetyScore: 55,
+    totalRisk: 12,
+    comfortScore: 40,
+    comfortLevel: 'Moderate',
+  );
 }
 
 Future<void> _flushEvents() async {

@@ -105,11 +105,29 @@
   </style>
   <script id="splash-screen-script">
     function removeSplashFromWeb() {
-      document.getElementById("splash")?.remove();
-      document.getElementById("splash-branding")?.remove();
-      document.body.style.background = "transparent";
+      try {
+        var splash = document.getElementById("splash");
+        if (splash) {
+          if (splash.parentNode) {
+            splash.parentNode.removeChild(splash);
+          } else {
+            splash.remove();
+          }
+        }
+        var branding = document.getElementById("splash-branding");
+        if (branding) {
+          if (branding.parentNode) {
+            branding.parentNode.removeChild(branding);
+          } else {
+            branding.remove();
+          }
+        }
+        document.body.style.background = "transparent";
+      } catch (e) {
+        // Ignored if elements were already unmounted from DOM
+      }
     }
-    window.addEventListener("flutter-first-frame", removeSplashFromWeb);
+    window.addEventListener("flutter-first-frame", removeSplashFromWeb, { once: true });
   </script>
 </head>
 <body>

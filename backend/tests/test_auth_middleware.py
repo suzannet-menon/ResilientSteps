@@ -122,6 +122,26 @@ class AuthMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(payload)
             self.assertEqual(payload["sub"], "user-456")
 
+    def test_hs256_verification_accepts_supabase_aud_claim(self):
+        # Regression: real Supabase access tokens always carry aud=.
+        # PyJWT raises InvalidAudienceError when the token has an aud claim
+        # and decode() is called without an audience, which used to 401 the
+        # entire hosted app. The middleware must verify the signature only.
+        token_payload = {
+            "sub": "user-456",
+            "exp": 9999999999,
+            "aud": "authenticated",
+            "email": "e2e@example.com",
+            "role": "authenticated",
+        }
+        secret = "test-symmetric-secret-key-that-is-long"
+        token = jwt.encode(token_payload, secret, algorithm="HS256")
+
+        with patch("app.services.auth_middleware.SUPABASE_JWT_SECRET", secret):
+            payload = _decode_token(token)
+            self.assertIsNotNone(payload)
+            self.assertEqual(payload["sub"], "user-456")
+
     @patch("app.services.auth_middleware._decode_token")
     async def test_require_auth_success(self, mock_decode):
         mock_decode.return_value = {"sub": "user-789"}

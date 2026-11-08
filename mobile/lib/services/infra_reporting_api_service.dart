@@ -37,15 +37,23 @@ class InfraCategory {
 }
 
 class InfraReportingApiService {
-  InfraReportingApiService({http.Client? client, String? baseUrl})
-    : _client = client ?? http.Client(),
-      _baseUrl = baseUrl ?? _envBaseUrl;
+  InfraReportingApiService({
+    http.Client? client,
+    String? baseUrl,
+    Future<String?> Function()? tokenProvider,
+    Future<String?> Function()? refreshProvider,
+  }) : _client = client ?? http.Client(),
+       _baseUrl = baseUrl ?? _envBaseUrl,
+       _tokenProvider = tokenProvider ?? AuthService.instance.getFreshAccessToken,
+       _refreshProvider = refreshProvider ?? AuthService.instance.refreshAccessToken;
 
   static const String _envBaseUrl = String.fromEnvironment('API_BASE_URL');
   static const Duration _timeout = Duration(seconds: 10);
 
   final http.Client _client;
   final String _baseUrl;
+  final Future<String?> Function() _tokenProvider;
+  final Future<String?> Function() _refreshProvider;
 
   Future<List<InfraCategory>> fetchCategories() async {
     final Uri uri = Uri.parse('$_baseUrl/infra/categories');
@@ -95,21 +103,22 @@ class InfraReportingApiService {
       'metadata': <String, dynamic>{'source': 'mobile_app'},
     };
 
-    final String? token = accessToken ?? AuthService.instance.accessToken;
+    final String? token = accessToken ?? await _tokenProvider();
 
     try {
-      final http.Response response = await _client
-          .post(
-            uri,
-            headers: <String, String>{
-              'Content-Type': 'application/json',
-              if (token != null) 'Authorization': 'Bearer $token',
-            },
-            body: jsonEncode(payload),
-          )
-          .timeout(_timeout);
+      http.Response response = await _postReport(uri, token, payload);
+
+      if (response.statusCode == 401 && accessToken == null) {
+        final String? refreshed = await _refreshProvider();
+        if (refreshed != null && refreshed != token) {
+          response = await _postReport(uri, refreshed, payload);
+        }
+      }
 
       if (response.statusCode < 200 || response.statusCode >= 300) {
+        if (response.statusCode == 401) {
+          throw InfraReportSubmissionException(api_utils.kSessionExpiredMessage);
+        }
         throw const InfraReportSubmissionException(
           'Infrastructure report could not be submitted. Please try again.',
         );
@@ -137,6 +146,23 @@ class InfraReportingApiService {
         'Unexpected error submitting report: $e',
       );
     }
+  }
+
+  Future<http.Response> _postReport(
+    Uri uri,
+    String? token,
+    Map<String, dynamic> payload,
+  ) {
+    return _client
+        .post(
+          uri,
+          headers: <String, String>{
+            'Content-Type': 'application/json',
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(payload),
+        )
+        .timeout(_timeout);
   }
 
   Future<List<Map<String, dynamic>>> fetchRecentReports({int limit = 20}) async {

@@ -6,7 +6,6 @@ class RiskRepositoryImpl implements RiskRepository {
 
   @override
   Future<Risk> getRiskForLocation(double lat, double lon) async {
-    // Mock implementation
     return Risk(
       score: 0.2,
       lighting: 0.8,

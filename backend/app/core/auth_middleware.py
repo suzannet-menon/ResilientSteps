@@ -48,14 +48,12 @@ def _get_jwk_set() -> PyJWKSet | None:
     """
     global _jwk_set_cache, _jwk_set_last_fetched
 
-    # 1. Static JWKS from environment variable
     if SUPABASE_JWKS:
         try:
             return PyJWKSet.from_dict(json.loads(SUPABASE_JWKS))
         except Exception as exc:
             LOGGER.error("Failed to parse SUPABASE_JWKS env variable: %s", exc)
 
-    # 2. Dynamic fetching with caching
     now = time.time()
     if _jwk_set_cache and (now - _jwk_set_last_fetched < _JWK_CACHE_TTL):
         return _jwk_set_cache
@@ -111,7 +109,6 @@ def _decode_token(token: str) -> dict | None:
             )
             return None
 
-        # Find key matching 'kid'
         key = None
         for k in jwk_set.keys:
             if k.key_id == kid:
@@ -127,7 +124,10 @@ def _decode_token(token: str) -> dict | None:
                 token,
                 key.key,
                 algorithms=["ES256"],
-                options={"require": ["sub", "exp"]},
+                # Supabase tokens always carry aud="authenticated"; we verify
+                # the signature only, so audience checking must stay off
+                # (PyJWT raises InvalidAudienceError otherwise).
+                options={"require": ["sub", "exp"], "verify_aud": False},
             )
             return payload
         except jwt.ExpiredSignatureError:
@@ -147,7 +147,10 @@ def _decode_token(token: str) -> dict | None:
                 token,
                 SUPABASE_JWT_SECRET,
                 algorithms=["HS256"],
-                options={"require": ["sub", "exp"]},
+                # Supabase tokens always carry aud="authenticated"; we verify
+                # the signature only, so audience checking must stay off
+                # (PyJWT raises InvalidAudienceError otherwise).
+                options={"require": ["sub", "exp"], "verify_aud": False},
             )
             return payload
         except jwt.ExpiredSignatureError:

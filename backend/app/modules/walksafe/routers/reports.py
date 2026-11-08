@@ -1,7 +1,7 @@
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth_middleware import require_auth
@@ -14,7 +14,10 @@ from app.modules.walksafe.schemas.reports import (
     ReportCreate,
     ReportResponse,
 )
-from app.modules.walksafe.services.reporting_service import reporting_service
+from app.modules.walksafe.services.reporting_service import (
+    SAFETY_CATEGORY_CODES,
+    reporting_service,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +47,7 @@ def _serialize_trusted_contacts(contacts: object) -> list[object]:
 @router.post("/reports", response_model=ReportResponse)
 async def submit_report(
     report: ReportCreate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user_id: str = Depends(require_auth),
     _rate: None = Depends(report_rate_limiter),
@@ -61,6 +65,17 @@ async def submit_report(
 
     report_id = str(created.get("id", ""))
     status = str(created.get("status", "pending"))
+
+    # WP14: optional Nugen enrichment AFTER the response is sent. Degrades to
+    # the insert-time values if Nugen is unavailable (S-103 offline rule).
+    background_tasks.add_task(
+        reporting_service.apply_ai_classification,
+        report_id=report_id,
+        description=report.description or "",
+        provided_category=str(report.category or ""),
+        allowed_category_codes=list(SAFETY_CATEGORY_CODES),
+    )
+
     return ReportResponse(
         id=report_id,
         status=status,

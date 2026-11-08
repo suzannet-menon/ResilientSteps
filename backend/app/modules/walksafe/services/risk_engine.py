@@ -9,6 +9,7 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_scoring_config
+from app.modules.walksafe.services import shade_sidecar
 from app.modules.walksafe.services.reporting_service import reporting_service
 from app.modules.walksafe.services.safety_dataset_cache import safety_dataset_cache
 from app.modules.walksafe.services.weather_service import weather_service
@@ -177,6 +178,9 @@ async def score_route(
             "unmatched_segment_count": 0,
             "applied_incident_count": 0,
             "incident_affected_segment_count": 0,
+            "base_safety_score": None,
+            "incident_score_delta": None,
+            "incident_points": [],
             "dataset_version": None,
             "segments": [],
             "warning": "Route has no coordinates",
@@ -210,6 +214,17 @@ async def score_route(
         db=db,
     )
     try:
+        sidecar_shade = await shade_sidecar.fetch_shade(
+            road_segment_ids=road_segment_ids,
+            dataset_version=snapshot.road_dataset_version,
+        )
+    except Exception:
+        LOGGER.warning(
+            "Failed to load sidecar shade; using OSM shade values.",
+            exc_info=True,
+        )
+        sidecar_shade = {}
+    try:
         shade_corrections = await reporting_service.get_segment_shade_corrections(
             road_segment_ids=road_segment_ids,
             dataset_version=snapshot.road_dataset_version,
@@ -225,8 +240,43 @@ async def score_route(
     segments = []
     matched_length = 0.0
     weighted_score_total = 0.0
+    weighted_base_score_total = 0.0
     comfort_length = 0.0
     weighted_comfort_total = 0.0
+
+    # R-104 before/after evidence: dedupe the verified report coordinates that
+    # matched the route's segments, so the app can show which points moved the
+    # score and drop them on the map.
+    incident_points_by_id: Dict[str, Dict[str, Any]] = {}
+    for incident_info in incident_aggregates.values():
+        for point in incident_info.get("incident_points") or []:
+            if not isinstance(point, dict):
+                continue
+            try:
+                lat = float(point["lat"])
+                lon = float(point["lon"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            normalized = {
+                "id": (
+                    str(point["id"]) if point.get("id") is not None else None
+                ),
+                "lat": lat,
+                "lon": lon,
+                "category": (
+                    str(point["category"])
+                    if point.get("category") is not None
+                    else None
+                ),
+                "severity": (
+                    int(point["severity"])
+                    if point.get("severity") is not None
+                    else None
+                ),
+            }
+            key = normalized["id"] or f"{lat:.6f},{lon:.6f}"
+            incident_points_by_id[key] = normalized
+    incident_points = list(incident_points_by_id.values())
 
     for row in rows:
         segment = row
@@ -254,6 +304,8 @@ async def score_route(
         )
 
         base_shade_score = segment.get("segment_shade_score")
+        if road_segment_id is not None and road_segment_id in sidecar_shade:
+            base_shade_score = sidecar_shade[road_segment_id]
         shade_correction = (
             float(shade_corrections.get(road_segment_id, 0.0))
             if road_segment_id is not None
@@ -274,6 +326,7 @@ async def score_route(
         if matched:
             matched_length += segment_length
             weighted_score_total += adjusted_safety_score * segment_length
+            weighted_base_score_total += float(base_safety_score) * segment_length
         if comfort is not None:
             comfort_length += segment_length
             weighted_comfort_total += comfort * segment_length
@@ -330,6 +383,7 @@ async def score_route(
                 "incident_weight": round(incident_weight, 3),
                 "incident_penalty": round(incident_penalty, 1),
                 "incident_categories": incident_info.get("incident_categories", []),
+                "max_incident_severity": incident_info.get("max_incident_severity"),
                 "latest_incident_at": incident_info.get("latest_incident_at"),
                 "zone": zone,
             }
@@ -362,6 +416,19 @@ async def score_route(
         for incident in incident_aggregates.values()
     )
 
+    base_safety_score: float | None
+    incident_score_delta: float | None
+    if matched_length > 0:
+        base_safety_score = round(
+            weighted_base_score_total / matched_length, 1
+        )
+        raw_base = weighted_base_score_total / matched_length
+        raw_adjusted = weighted_score_total / matched_length
+        incident_score_delta = round(raw_base - raw_adjusted, 1)
+    else:
+        base_safety_score = None
+        incident_score_delta = None
+
     return {
         "safety_score": safety_score,
         "comfort_score": comfort_score,
@@ -376,6 +443,11 @@ async def score_route(
             for incident in incident_aggregates.values()
             if int(incident.get("incident_count", 0)) > 0
         ),
+        # R-104: route score before verified-report penalties, the delta from
+        # those reports, and the mapped report coordinates behind both.
+        "base_safety_score": base_safety_score,
+        "incident_score_delta": incident_score_delta,
+        "incident_points": incident_points,
         "dataset_version": snapshot.road_dataset_version,
         "segments": segments,
         "warning": warning,

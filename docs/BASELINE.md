@@ -157,9 +157,9 @@ ResilientSteps/
 ├── cache/                             Local cache directory
 │
 └── docs/                              Migration planning documents
-    ├── cityos_plan.xml                CityOS vision + modules (XML)
-    ├── CityOS_ADR_System_Spec.md      Architecture decisions
-    └── CityOS_Engineering_Handbook_Volume_I.md  Product specification
+    ├── resilientsteps_plan.xml             ResilientSteps vision + modules (XML)
+    ├── ResilientSteps_ADR_System_Spec.md   Architecture decisions
+    └── ResilientSteps_Engineering_Handbook_Volume_I.md  Product specification
 ```
 
 ---

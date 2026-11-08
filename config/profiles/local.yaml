@@ -1,4 +1,4 @@
-profile: local
+﻿profile: local
 description: "Development on a laptop"
 
 backend:

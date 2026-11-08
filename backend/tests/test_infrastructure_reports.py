@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.core.auth_middleware import require_auth
 from app.modules.infrastructure.services.infra_reporting_service import (
+    INFRA_CATEGORY_CODES,
     infra_reporting_service,
 )
 from app.modules.walksafe.services.reporting_service import reporting_service
@@ -68,21 +69,28 @@ class InfrastructureReportingTests(unittest.TestCase):
             "severity": 4,
         }
 
-        with patch(
-            "app.modules.infrastructure.services.infra_reporting_service.reporting_service.create_report",
-            new=AsyncMock(return_value=mock_created),
+        # The router now schedules the Nugen follow-up after the response;
+        # keep the classifier OFF so TestClient can never hit the live API.
+        with patch.dict(
+            "os.environ",
+            {"NUGEN_API_KEY": "", "NUGEN_MODEL": ""},
+            clear=False,
         ):
-            with TestClient(app) as client:
-                response = client.post(
-                    "/infra/reports",
-                    json={
-                        "lat": 18.52,
-                        "lon": 73.85,
-                        "category": "pothole",
-                        "description": "Large pothole on main street",
-                        "severity": 4,
-                    },
-                )
+            with patch(
+                "app.modules.infrastructure.services.infra_reporting_service.reporting_service.create_report",
+                new=AsyncMock(return_value=mock_created),
+            ):
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/infra/reports",
+                        json={
+                            "lat": 18.52,
+                            "lon": 73.85,
+                            "category": "pothole",
+                            "description": "Large pothole on main street",
+                            "severity": 4,
+                        },
+                    )
 
         app.dependency_overrides.clear()
 
@@ -91,6 +99,53 @@ class InfrastructureReportingTests(unittest.TestCase):
         self.assertEqual(body["id"], "101")
         self.assertEqual(body["report_type"], "infrastructure")
         self.assertEqual(body["severity"], 4)
+
+    def test_post_infra_report_schedules_nugen_classification(self):
+        from app.core.rate_limiter import report_rate_limiter
+        app.dependency_overrides[require_auth] = lambda: "user_test_hash"
+        app.dependency_overrides[report_rate_limiter] = lambda: None
+        mock_created = {
+            "id": "102",
+            "status": "pending",
+            "confidence": 0.5,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+            "report_type": "infrastructure",
+            "severity": 4,
+        }
+        classify_mock = AsyncMock(
+            return_value={"report_id": "102", "classified": False}
+        )
+
+        with patch(
+            "app.modules.infrastructure.services.infra_reporting_service.reporting_service.create_report",
+            new=AsyncMock(return_value=mock_created),
+        ):
+            with patch(
+                "app.modules.infrastructure.routers.reports.reporting_service.apply_ai_classification",
+                new=classify_mock,
+            ):
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/infra/reports",
+                        json={
+                            "lat": 18.52,
+                            "lon": 73.85,
+                            "category": "pothole",
+                            "description": "Large pothole on main street",
+                            "severity": 4,
+                        },
+                    )
+
+        app.dependency_overrides.clear()
+
+        self.assertEqual(response.status_code, 200)
+        classify_mock.assert_awaited_once()
+        kwargs = classify_mock.await_args.kwargs
+        self.assertEqual(kwargs["report_id"], "102")
+        self.assertEqual(kwargs["provided_category"], "pothole")
+        self.assertEqual(
+            kwargs["allowed_category_codes"], list(INFRA_CATEGORY_CODES)
+        )
 
     def test_post_infra_report_invalid_category(self):
         app.dependency_overrides[require_auth] = lambda: "user_test_hash"

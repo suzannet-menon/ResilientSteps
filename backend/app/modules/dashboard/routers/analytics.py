@@ -93,7 +93,7 @@ async def export_dashboard_data(
     return Response(
         content=csv_data,
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=cityos_reports_export.csv"},
+        headers={"Content-Disposition": "attachment; filename=resilientsteps_reports_export.csv"},
     )
 
 

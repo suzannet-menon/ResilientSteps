@@ -29,6 +29,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       return;
     }
 
+    FocusScope.of(context).unfocus();
+
     setState(() {
       _loading = true;
       _errorMessage = null;
@@ -68,9 +70,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           padding: const EdgeInsets.all(24),
           child: Form(
             key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
+            child: AutofillGroup(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
                 const SizedBox(height: 16),
                 const Icon(
                   Icons.lock_reset_outlined,
@@ -112,6 +115,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
+                  autofillHints: const <String>[
+                    AutofillHints.email,
+                    AutofillHints.username,
+                  ],
                   autocorrect: false,
                   enabled: !_sent,
                   decoration: const InputDecoration(
@@ -161,6 +168,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 ),
               ],
             ),
+          ),
           ),
         ),
       ),

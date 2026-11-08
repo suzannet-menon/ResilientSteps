@@ -83,10 +83,15 @@ async def list_reports(
                 submitted_at,
                 moderated_at,
                 COALESCE(report_type, 'safety') AS report_type,
-                COALESCE(severity, 3) AS severity
+                COALESCE(severity, 3) AS severity,
+                COALESCE(model_name, '') AS model_name,
+                COALESCE(model_confidence, 0.0) AS model_confidence,
+                auto_moderated,
+                COALESCE(metadata->'ai', '{}'::jsonb) AS ai
             FROM incident_reports
             WHERE status = :status
-            AND (:report_type IS NULL OR report_type = :report_type)
+            AND (CAST(:report_type AS text) IS NULL
+                 OR report_type = CAST(:report_type AS text))
             ORDER BY submitted_at DESC
             LIMIT 100
             """
